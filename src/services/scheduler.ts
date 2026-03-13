@@ -195,11 +195,18 @@ async function detectNoShows(env: Env): Promise<void> {
         .update({ status: 'no_show', updated_at: new Date().toISOString() })
         .eq('id', bookingData.id);
 
-      await pushMessage(
-        tenant,
-        endUser.line_user_id,
-        '今日ご都合が悪かったでしょうか？またお気軽に日程をお選びくださいね😊'
-      );
+      // Personalized no-show message based on hearing data
+      const hearingData = endUser.hearing_data as Record<string, string> | null;
+      const name = endUser.display_name || 'ゲスト';
+      let noShowMessage: string;
+
+      if (hearingData && Object.keys(hearingData).length > 0) {
+        noShowMessage = `${name}さん、今日はご都合が合わなかったでしょうか？\n\n以前お話しいただいたことを踏まえて、ぜひお話できればと思っています。\nまた別の日程でお気軽にお選びくださいね😊`;
+      } else {
+        noShowMessage = `${name}さん、今日はご都合が悪かったでしょうか？\nまたお気軽に日程をお選びくださいね😊`;
+      }
+
+      await pushMessage(tenant, endUser.line_user_id, noShowMessage);
 
       await supabase
         .from('end_users')
