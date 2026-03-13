@@ -10,7 +10,7 @@ crons = ["* * * * *"]
 # KV Namespace（テナント設定キャッシュ）
 [[kv_namespaces]]
 binding = "TENANT_CACHE"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+id = "d1f26074ee4444d9b21e4a9bffa2bb58"
 
 # Queue（非同期メッセージ処理）
 [[queues.producers]]
