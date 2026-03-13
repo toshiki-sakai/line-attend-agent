@@ -6,6 +6,7 @@ import { invalidateTenantCache } from '../config/tenant-config';
 import { createTenantSchema, updateTenantSchema, createSlotSchema, paginationSchema } from '../utils/admin-validators';
 import { uuidSchema } from '../utils/validation';
 import { getFunnelMetrics, getAllFunnelMetrics } from '../services/analytics';
+import { verifySessionToken } from '../middleware/security';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -16,7 +17,7 @@ admin.use('/admin/api/*', async (c, next) => {
     if (authHeader.slice(7) === c.env.ADMIN_API_KEY) return next();
   }
   const cookie = getCookie(c, 'admin_session');
-  if (cookie === c.env.ADMIN_API_KEY) return next();
+  if (cookie && verifySessionToken(cookie, c.env.ADMIN_API_KEY)) return next();
   return c.json({ error: 'Unauthorized' }, 401);
 });
 

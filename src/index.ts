@@ -6,8 +6,19 @@ import admin from './routes/admin';
 import adminDashboard from './routes/admin-dashboard';
 import { handleScheduled } from './services/scheduler';
 import { handleQueueMessage } from './services/queue-handler';
+import { rateLimitMiddleware, csrfProtectionMiddleware, securityHeadersMiddleware } from './middleware/security';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Global security headers
+app.use('*', securityHeadersMiddleware);
+
+// Rate limiting for webhook (higher limit)
+app.use('/webhook/*', (c, next) => rateLimitMiddleware(c, next, 200));
+
+// Rate limiting and CSRF for admin routes
+app.use('/admin/*', (c, next) => rateLimitMiddleware(c, next, 60));
+app.use('/admin/*', csrfProtectionMiddleware);
 
 app.route('/', webhook);
 app.route('/', health);

@@ -6,6 +6,7 @@ import { getSupabaseClient } from '../utils/supabase';
 import { invalidateTenantCache } from '../config/tenant-config';
 import { getAllFunnelMetrics, getFunnelMetrics } from '../services/analytics';
 import { formatDateTimeJST } from '../utils/datetime';
+import { hashSessionToken, verifySessionToken } from '../middleware/security';
 
 const dashboard = new Hono<{ Bindings: Env }>();
 
@@ -39,7 +40,7 @@ dashboard.use('/admin/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
   if (path === '/admin/login') return next();
   const cookie = getCookie(c, 'admin_session');
-  if (cookie !== c.env.ADMIN_API_KEY) return c.redirect('/admin/login');
+  if (!cookie || !verifySessionToken(cookie, c.env.ADMIN_API_KEY)) return c.redirect('/admin/login');
   return next();
 });
 
@@ -75,7 +76,7 @@ dashboard.post('/admin/login', async (c) => {
   const body = await c.req.parseBody();
   const key = body['key'] as string;
   if (key !== c.env.ADMIN_API_KEY) return c.redirect('/admin/login?error=1');
-  setCookie(c, 'admin_session', key, {
+  setCookie(c, 'admin_session', hashSessionToken(key), {
     path: '/admin',
     httpOnly: true,
     secure: true,
