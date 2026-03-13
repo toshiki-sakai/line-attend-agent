@@ -1,0 +1,160 @@
+{
+  "scenario": {
+    "steps": [
+      {
+        "id": "welcome",
+        "type": "template",
+        "trigger": "follow",
+        "delay_minutes": 0,
+        "message": {
+          "type": "text",
+          "content": "友だち追加ありがとうございます！🎉\nプログラミングスクール「テックアカデミー」の公式LINEです。\n\n無料相談会への参加で、あなたに最適な学習プランをご提案します✨"
+        },
+        "next_step": "education_1"
+      },
+      {
+        "id": "education_1",
+        "type": "template",
+        "trigger": "auto",
+        "delay_minutes": 30,
+        "message": {
+          "type": "text",
+          "content": "こんにちは！まずは3分の動画をご覧ください🎬\nプログラミング学習で人生が変わった方のインタビューです👇\nhttps://example.com/education-video"
+        },
+        "next_step": "hearing_start"
+      },
+      {
+        "id": "hearing_start",
+        "type": "ai",
+        "trigger": "auto",
+        "delay_minutes": 1440,
+        "ai_config": {
+          "purpose": "hearing",
+          "max_turns": 6,
+          "completion_condition": "all_items_collected"
+        },
+        "next_step": "booking_invite"
+      },
+      {
+        "id": "booking_invite",
+        "type": "template",
+        "trigger": "auto",
+        "delay_minutes": 0,
+        "message": {
+          "type": "flex",
+          "content": "BOOKING_SELECTOR"
+        },
+        "next_step": "booked"
+      },
+      {
+        "id": "booked",
+        "type": "template",
+        "trigger": "booking_confirmed",
+        "delay_minutes": 0,
+        "message": {
+          "type": "text",
+          "content": "ご予約ありがとうございます🎉\n{booking_date}に{booking_time}からZoomでお待ちしています！\n\nZoomリンク: {zoom_url}"
+        },
+        "next_step": "pre_consultation_remind"
+      },
+      {
+        "id": "pre_consultation_remind",
+        "type": "template",
+        "trigger": "auto",
+        "delay_minutes": 0,
+        "message": {
+          "type": "text",
+          "content": "相談会当日は、普段のお悩みや目標をそのままお話しいただければ大丈夫です😊\nリラックスしてご参加くださいね！"
+        },
+        "next_step": "consulted"
+      }
+    ]
+  },
+  "hearing": {
+    "items": [
+      {
+        "id": "current_problem",
+        "question_hint": "今一番困っていること・解決したい課題",
+        "required": true,
+        "priority": 1
+      },
+      {
+        "id": "desired_outcome",
+        "question_hint": "スクールで得たい成果・なりたい姿",
+        "required": true,
+        "priority": 2
+      },
+      {
+        "id": "experience_level",
+        "question_hint": "現在のスキルレベル・経験",
+        "required": true,
+        "priority": 3
+      },
+      {
+        "id": "urgency",
+        "question_hint": "いつまでに変わりたいか・緊急度",
+        "required": false,
+        "priority": 4
+      },
+      {
+        "id": "past_experience",
+        "question_hint": "過去に他のスクールや教材を試した経験",
+        "required": false,
+        "priority": 5
+      }
+    ]
+  },
+  "reminder": {
+    "pre_consultation": [
+      {
+        "timing": "3_days_before",
+        "type": "template",
+        "content": "3日後に無料相談会です！何か気になることがあれば、お気軽にメッセージくださいね😊"
+      },
+      {
+        "timing": "1_day_before",
+        "type": "ai",
+        "purpose": "personalized_remind"
+      },
+      {
+        "timing": "1_hour_before",
+        "type": "template",
+        "content": "まもなく相談会の時間です！\n\nZoomリンク: {zoom_url}\n\nお会いできるのを楽しみにしています✨"
+      }
+    ],
+    "no_response_follow_up": {
+      "enabled": true,
+      "strategy": "ai_decided",
+      "max_attempts": 5,
+      "min_interval_hours": 24,
+      "max_interval_hours": 72,
+      "escalation_message": "人間のスタッフに引き継ぎます。少々お待ちください。"
+    }
+  },
+  "tone": {
+    "personality": "friendly_professional",
+    "emoji_usage": "moderate",
+    "language_style": "です・ます調",
+    "custom_instructions": "20代〜30代の社会人がターゲット。堅すぎず、フランクすぎない。相手の名前を呼ぶ。"
+  },
+  "guardrails": {
+    "forbidden_topics": ["具体的な受講料金", "他社スクールの名前や批判"],
+    "forbidden_expressions": ["絶対", "保証", "確実", "必ず", "100%"],
+    "answer_scope": "プログラミング学習とキャリアチェンジに関する一般的な質問のみ回答。政治・宗教・医療・法律相談には回答しない。",
+    "human_handoff_trigger": "ユーザーが明確に不満を表明した場合、または3回連続で意図が読み取れない場合"
+  },
+  "post_consultation": {
+    "actions": [
+      { "type": "thank_you", "delay_hours": 1, "method": "ai" },
+      { "type": "enrollment_guide", "delay_hours": 24, "method": "template", "content": "入会をご検討いただきありがとうございます！\n\n▼入会手続きはこちら\nhttps://example.com/enrollment\n\n今月中のお申し込みで入会金が半額になるキャンペーン実施中です🎉" },
+      { "type": "follow_up", "delay_hours": 72, "method": "ai", "condition": "status != enrolled" },
+      { "type": "survey", "delay_hours": 168, "method": "template", "content": "先日の相談会はいかがでしたか？\n\n1分で回答できるアンケートにご協力ください🙏\nhttps://example.com/survey" }
+    ]
+  },
+  "booking": {
+    "zoom_base_url": "https://zoom.us/j/xxxxxxxxxx",
+    "duration_minutes": 60,
+    "buffer_minutes": 15,
+    "max_daily_bookings": 3
+  }
+}
