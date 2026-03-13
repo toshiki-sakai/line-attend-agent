@@ -1,11 +1,11 @@
-import type { Env, Tenant, EndUser, FlowContext, ScenarioStep, AIResponse, ConversationMessage } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, ScenarioStep, AIResponse } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { pushMessage, pushFlexMessage } from './line';
 import { generateHearingResponse, handleUnexpectedInput, getConversationHistory } from './ai';
 import { validateMessage, validateWithRetry } from '../guards/ai-guardrails';
 import { getAvailableSlots, buildBookingFlexMessage } from './booking';
 import { notifyStaff } from './notification';
-import { formatDateJST, formatTimeJST } from '../utils/datetime';
+import { cancelPendingActions } from '../utils/scheduled-actions';
 import { logger } from '../utils/logger';
 
 const NON_TEXT_REPLY = 'ありがとうございます！テキストでお返事いただけると嬉しいです😊';
@@ -225,7 +225,7 @@ export class FlowEngine {
       endUser: context.endUser,
       reason,
     });
-    await this.cancelPendingActions(context.endUser.id);
+    await cancelPendingActions(context.endUser.id, this.env);
   }
 
   // --- Helper methods ---
@@ -288,15 +288,6 @@ export class FlowEngine {
       ...action,
       status: 'pending',
     });
-  }
-
-  private async cancelPendingActions(endUserId: string): Promise<void> {
-    const supabase = getSupabaseClient(this.env);
-    await supabase
-      .from('scheduled_actions')
-      .update({ status: 'cancelled' })
-      .eq('end_user_id', endUserId)
-      .eq('status', 'pending');
   }
 
   private async saveConversation(

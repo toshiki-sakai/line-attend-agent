@@ -151,6 +151,7 @@ CREATE INDEX idx_end_users_tenant ON end_users(tenant_id);
 CREATE INDEX idx_end_users_status ON end_users(tenant_id, status);
 CREATE INDEX idx_conversations_end_user ON conversations(end_user_id, created_at);
 CREATE INDEX idx_bookings_scheduled ON bookings(scheduled_at);
+CREATE INDEX idx_bookings_status ON bookings(status, scheduled_at);
 CREATE INDEX idx_scheduled_actions_pending ON scheduled_actions(execute_at) WHERE status = 'pending';
 CREATE INDEX idx_available_slots_active ON available_slots(tenant_id, start_at) WHERE is_active = true;
 CREATE INDEX idx_processed_events_cleanup ON processed_events(processed_at);

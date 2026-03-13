@@ -15,13 +15,15 @@ export async function notifyStaff(tenant: Tenant, notification: StaffNotificatio
 
   const message = buildNotificationMessage(tenant, notification);
 
-  for (const staffUserId of config.staff_line_user_ids) {
-    try {
-      await pushMessage(tenant, staffUserId, message);
-    } catch (error) {
+  const results = await Promise.allSettled(
+    config.staff_line_user_ids.map((staffUserId) => pushMessage(tenant, staffUserId, message))
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    if (results[i].status === 'rejected') {
       logger.error('Failed to notify staff', {
-        staffUserId,
-        error: String(error),
+        staffUserId: config.staff_line_user_ids[i],
+        error: String((results[i] as PromiseRejectedResult).reason),
       });
     }
   }

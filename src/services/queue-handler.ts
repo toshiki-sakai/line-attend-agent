@@ -6,6 +6,7 @@ import { FlowEngine } from './flow-engine';
 import { createBooking } from './booking';
 import { getConversationHistory } from './ai';
 import { isAlreadyProcessed, markProcessed } from '../utils/idempotency';
+import { cancelPendingActions } from '../utils/scheduled-actions';
 import { isValidUUID } from '../utils/validation';
 import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
@@ -145,12 +146,7 @@ async function handleUnfollow(
     .update({ is_blocked: true, updated_at: new Date().toISOString() })
     .eq('id', endUser.id);
 
-  // Cancel all pending scheduled actions
-  await supabase
-    .from('scheduled_actions')
-    .update({ status: 'cancelled' })
-    .eq('end_user_id', endUser.id)
-    .eq('status', 'pending');
+  await cancelPendingActions(endUser.id, env);
 
   logger.info('User unfollowed', { tenantId: tenant.id, lineUserId });
 }
@@ -277,23 +273,29 @@ async function scheduleBookingReminders(
   const scheduledAt = new Date(booking.scheduled_at as string);
   const reminders = tenant.reminder_config?.pre_consultation || [];
 
-  for (const reminder of reminders) {
-    const executeAt = calculateReminderTime(reminder.timing, scheduledAt);
-    if (!executeAt || executeAt <= new Date()) continue;
+  const now = new Date();
+  const rows = reminders
+    .map((reminder) => {
+      const executeAt = calculateReminderTime(reminder.timing, scheduledAt);
+      if (!executeAt || executeAt <= now) return null;
+      return {
+        tenant_id: tenant.id,
+        end_user_id: endUser.id,
+        action_type: 'reminder' as const,
+        action_payload: {
+          booking_id: booking.id,
+          reminder_timing: reminder.timing,
+          reminder_type: reminder.type,
+          reminder_content: reminder.content,
+        },
+        execute_at: executeAt.toISOString(),
+        status: 'pending' as const,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
 
-    await supabase.from('scheduled_actions').insert({
-      tenant_id: tenant.id,
-      end_user_id: endUser.id,
-      action_type: 'reminder',
-      action_payload: {
-        booking_id: booking.id,
-        reminder_timing: reminder.timing,
-        reminder_type: reminder.type,
-        reminder_content: reminder.content,
-      },
-      execute_at: executeAt.toISOString(),
-      status: 'pending',
-    });
+  if (rows.length > 0) {
+    await supabase.from('scheduled_actions').insert(rows);
   }
 }
 

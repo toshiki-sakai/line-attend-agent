@@ -3,6 +3,7 @@ import type { Tenant } from '../types';
 import { logger } from '../utils/logger';
 
 const LINE_API_BASE = 'https://api.line.me/v2/bot';
+const LINE_API_TIMEOUT_MS = 10000;
 
 export function verifySignature(body: string, signature: string, channelSecret: string): boolean {
   const hmac = createHmac('SHA256', channelSecret);
@@ -42,6 +43,7 @@ async function pushMessages(
       Authorization: `Bearer ${tenant.line_channel_access_token}`,
     },
     body: JSON.stringify({ to: userId, messages }),
+    signal: AbortSignal.timeout(LINE_API_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -64,6 +66,7 @@ export async function getProfile(
       headers: {
         Authorization: `Bearer ${tenant.line_channel_access_token}`,
       },
+      signal: AbortSignal.timeout(LINE_API_TIMEOUT_MS),
     });
 
     if (!response.ok) return null;

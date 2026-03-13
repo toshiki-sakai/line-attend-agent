@@ -73,8 +73,9 @@ export async function createBooking(
     .eq('id', tenantId)
     .single();
 
-  const bookingConfig = (tenant?.scenario_config as Record<string, unknown>)?.booking as Record<string, string> | undefined;
-  const zoomUrl = bookingConfig?.zoom_base_url || '';
+  const scenarioConfig = tenant?.scenario_config as Record<string, unknown> | undefined;
+  const bookingConfig = scenarioConfig?.booking as Record<string, string> | undefined;
+  const zoomUrl = bookingConfig?.zoom_base_url ?? '';
 
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')

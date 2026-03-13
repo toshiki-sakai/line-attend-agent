@@ -1,4 +1,4 @@
-import type { Env, Tenant, EndUser, FlowContext, AIResponse, ConversationMessage } from '../types';
+import type { Env, FlowContext, AIResponse, ConversationMessage } from '../types';
 import { buildSystemPrompt } from '../prompts/system-base';
 import { buildHearingPrompt } from '../prompts/hearing';
 import { buildFollowUpPrompt } from '../prompts/follow-up';
@@ -12,6 +12,8 @@ const MAX_TOKENS = 400;
 const CONVERSATION_HISTORY_LIMIT = 20;
 const MAX_API_RETRIES = 3;
 const BACKOFF_BASE_MS = 500;
+// Why: Cloudflare Workers has a 30s wall-clock limit; timeout before that to allow graceful error handling
+const API_TIMEOUT_MS = 25000;
 
 export async function getConversationHistory(
   endUserId: string,
@@ -55,6 +57,7 @@ async function callClaudeAPI(
           system: systemPrompt,
           messages,
         }),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
 
       if (!response.ok) {
@@ -63,6 +66,7 @@ async function callClaudeAPI(
 
       const data = (await response.json()) as { content: Array<{ type: string; text?: string }> };
       const text = data.content[0]?.text || '';
+      // Why: Claude sometimes wraps JSON in markdown fences despite instructions
       const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       return JSON.parse(cleaned) as AIResponse;
     } catch (error) {

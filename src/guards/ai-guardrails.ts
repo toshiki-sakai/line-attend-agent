@@ -1,4 +1,4 @@
-import type { Env, Tenant, FlowContext, AIResponse } from '../types';
+import type { Tenant, FlowContext, AIResponse } from '../types';
 import { logger } from '../utils/logger';
 
 interface GuardrailResult {

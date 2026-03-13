@@ -1,6 +1,6 @@
 import type { Tenant, EndUser } from '../types';
 
-export function buildSystemPrompt(tenant: Tenant, endUser: EndUser, purpose: string): string {
+export function buildSystemPrompt(tenant: Tenant, endUser: EndUser, _purpose: string): string {
   return `
 あなたは「${tenant.name}」の公式LINEアシスタントです。
 
