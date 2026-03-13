@@ -3,6 +3,8 @@ import { getSupabaseClient } from '../utils/supabase';
 import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
 
+const MAX_SLOT_RESULTS = 10;
+
 export async function getAvailableSlots(tenantId: string, env: Env): Promise<AvailableSlot[]> {
   const supabase = getSupabaseClient(env);
   const now = new Date().toISOString();
@@ -14,7 +16,7 @@ export async function getAvailableSlots(tenantId: string, env: Env): Promise<Ava
     .eq('is_active', true)
     .gt('start_at', now)
     .order('start_at', { ascending: true })
-    .limit(10);
+    .limit(MAX_SLOT_RESULTS);
 
   if (error) {
     logger.error('Failed to get available slots', { tenantId, error: error.message });

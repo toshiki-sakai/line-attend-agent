@@ -258,6 +258,8 @@ async function handlePostback(
   }
 }
 
+// --- Booking reminder helpers ---
+
 async function scheduleBookingReminders(
   tenant: Tenant,
   endUser: EndUser,

@@ -10,6 +10,8 @@ const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
 const MAX_TOKENS = 400;
 const CONVERSATION_HISTORY_LIMIT = 20;
+const MAX_API_RETRIES = 3;
+const BACKOFF_BASE_MS = 500;
 
 export async function getConversationHistory(
   endUserId: string,
@@ -37,7 +39,7 @@ async function callClaudeAPI(
 ): Promise<AIResponse> {
   const { temperature = 0.5 } = options;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < MAX_API_RETRIES; attempt++) {
     try {
       const response = await fetch(CLAUDE_API_URL, {
         method: 'POST',
@@ -64,8 +66,8 @@ async function callClaudeAPI(
       const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       return JSON.parse(cleaned) as AIResponse;
     } catch (error) {
-      if (attempt === 2) throw error;
-      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 500));
+      if (attempt === MAX_API_RETRIES - 1) throw error;
+      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * BACKOFF_BASE_MS));
     }
   }
 

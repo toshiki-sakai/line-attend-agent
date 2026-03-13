@@ -369,8 +369,8 @@ async function detectNoShows(env: Env): Promise<void> {
 
   for (const bookingData of noShowBookings) {
     try {
-      const tenant = bookingData.tenants as unknown as Tenant;
-      const endUser = bookingData.end_users as unknown as EndUser;
+      const tenant = bookingData.tenants as Tenant;
+      const endUser = bookingData.end_users as EndUser;
 
       await supabase
         .from('bookings')
