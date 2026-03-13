@@ -39,16 +39,62 @@
 - テスト用テナント設定JSON（`tenant-configs/example-school.json`）
 - GitHubリポジトリ作成 & プッシュ: https://github.com/toshiki-sakai/line-attend-agent
 
+---
+
+### 要件定義v2対応
+
+要件定義書が修正され、以下の差分に対応:
+
+- `scheduled_actions` テーブル追加（遅延送信/リマインド/追客/フォローの中央管理）
+- `processed_events` テーブル + 冪等性チェック（Webhook重複排除）
+- `v_funnel_metrics` ビュー（着座率KPI計測）
+- `lock_pending_actions` RPC（FOR UPDATE SKIP LOCKEDで排他制御）
+- 楽観的ロック（available_slots.version）
+- `is_blocked`（unfollow検知）、`ai_metadata`（会話ログ拡張）
+- `notification_config`（スタッフ通知設定）
+- Claude API: SDK→fetch直接呼び出し + JSONフェンス除去
+- reply token廃止 → 全メッセージpush message
+- `date-fns-tz` でUTC↔Asia/Tokyo変換
+- `escalate_to_human` を全AIレスポンスに追加
+- `validateWithRetry`（ガードレール違反時のフィードバック付き再生成）
+- unfollow処理: is_blocked=true + pending actions一括cancel
+- 非テキストメッセージ対応
+- Dead Letter Queue設定
+
+---
+
+### コードレビュー対応
+
+`codereview.doc` の指摘パターンに基づき予防的に修正:
+
+- マジックナンバー → 名前付き定数化（MAX_API_RETRIES, BACKOFF_BASE_MS, KV_CACHE_TTL_SECONDS, MAX_SLOT_RESULTS）
+- 不要なダブルキャスト除去（`as unknown as` → `as`）
+- 未使用関数削除（getTenantByLineChannelId）
+- formatDate/formatTime を datetime.ts に共通化済み
+
+---
+
+### セキュリティレビュー（入力検証 & インジェクション）
+
+- zodによるランタイム検証追加（tenantId UUID, webhook body schema, slotId UUID）
+- 署名検証を `timingSafeEqual` に変更（タイミング攻撃対策）
+- SQLインジェクション: 問題なし（Supabase JS ClientのORM経由のみ）
+- XSS: 該当箇所なし（HTML出力なし、LINE APIにJSON送信のみ）
+- パストラバーサル: 該当箇所なし（ファイルシステムアクセスなし）
+- コマンドインジェクション: 該当箇所なし（child_process使用なし）
+
+---
+
 ### 技術メモ
-- Cloudflare Workers の Queue Consumer は `ExportedHandlerQueueHandler<Env>` でキャストが必要だった
-- `node:crypto` の `createHmac` を使うために `nodejs_compat` フラグ必須
+- Cloudflare Workers の Queue Consumer は `ExportedHandlerQueueHandler<Env>` でキャストが必要
+- `node:crypto` の `createHmac` / `timingSafeEqual` を使うために `nodejs_compat` フラグ必須
 - TypeScript型チェック通過確認済み
 
-### 次にやること
-- [ ] Supabaseプロジェクト作成 → マイグレーション実行
-- [ ] Cloudflare KV / Queues を `wrangler` で作成し、`wrangler.toml` のIDを実際の値に更新
+### 次にやること（手動作業）
+- [ ] Supabaseプロジェクト作成 → マイグレーション実行（`001_initial_schema.sql`）
+- [ ] Cloudflare KV / Queues / DLQ を `wrangler` で作成し、`wrangler.toml` のIDを実際の値に更新
 - [ ] `.dev.vars` に実際のAPIキー・トークンを記入
 - [ ] `wrangler secret put` で本番シークレット設定
 - [ ] `npm run deploy` でCloudflare Workersにデプロイ
-- [ ] LINE公式アカウントのWebhook URLを設定
+- [ ] LINE公式アカウントのWebhook URLを `https://<worker-url>/webhook/<tenantId>` に設定
 - [ ] エンドツーエンドの動作テスト
