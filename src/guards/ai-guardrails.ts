@@ -23,8 +23,15 @@ const UNIVERSAL_PATTERNS: Array<{ pattern: RegExp; desc: string }> = [
   { pattern: /100\s*[%％]/, desc: '「100%」' },
 ];
 
+const MAX_MESSAGE_LENGTH = 300;
+
 export function validateMessage(message: string, tenant: Tenant): GuardrailResult {
   const violations: string[] = [];
+
+  // Length check - LINE messages should be concise
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    violations.push(`メッセージが長すぎます（${message.length}文字 > ${MAX_MESSAGE_LENGTH}文字）`);
+  }
 
   for (const { pattern, desc } of UNIVERSAL_PATTERNS) {
     if (pattern.test(message)) {
@@ -33,13 +40,13 @@ export function validateMessage(message: string, tenant: Tenant): GuardrailResul
   }
 
   for (const expr of tenant.guardrail_config?.forbidden_expressions || []) {
-    if (message.includes(expr)) {
+    if (expr && message.includes(expr)) {
       violations.push(`禁止: ${expr}`);
     }
   }
 
   for (const topic of tenant.guardrail_config?.forbidden_topics || []) {
-    if (message.includes(topic)) {
+    if (topic && message.includes(topic)) {
       violations.push(`禁止トピック: ${topic}`);
     }
   }

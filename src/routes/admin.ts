@@ -7,6 +7,7 @@ import { createTenantSchema, updateTenantSchema, createSlotSchema, paginationSch
 import { uuidSchema } from '../utils/validation';
 import { getFunnelMetrics, getAllFunnelMetrics, getDetailedAnalytics } from '../services/analytics';
 import { verifySessionToken } from '../middleware/security';
+import { getDefaultConfigs } from '../config/default-scenarios';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -460,6 +461,14 @@ admin.get('/admin/api/system/health', async (c) => {
       today: bookingsToday || 0,
     },
   });
+});
+
+// ========================
+// Default configs
+// ========================
+
+admin.get('/admin/api/defaults', (c) => {
+  return c.json({ data: getDefaultConfigs() });
 });
 
 // ========================
