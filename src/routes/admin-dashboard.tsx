@@ -4,9 +4,10 @@ import type { FC } from 'hono/jsx';
 import type { Env } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { invalidateTenantCache } from '../config/tenant-config';
-import { getAllFunnelMetrics, getFunnelMetrics } from '../services/analytics';
+import { getAllFunnelMetrics, getDetailedAnalytics } from '../services/analytics';
 import { formatDateTimeJST } from '../utils/datetime';
 import { hashSessionToken, verifySessionToken } from '../middleware/security';
+import { getDefaultConfigs } from '../config/default-scenarios';
 
 const dashboard = new Hono<{ Bindings: Env }>();
 
@@ -179,55 +180,82 @@ dashboard.get('/admin/', async (c) => {
 
 // --- Create Tenant Form ---
 dashboard.get('/admin/tenants/new', (c) => {
+  const defaults = getDefaultConfigs();
   return c.html(
     <Layout title="テナント作成">
       <h1 class="text-2xl font-bold mb-6">新規テナント作成</h1>
+      <div class="bg-green-50 border border-green-200 rounded p-4 mb-6">
+        <p class="text-sm text-green-700">推奨設定がプリセットされています。LINE Channel情報とスクール情報を入力するだけで始められます。</p>
+      </div>
       <form method="post" action="/admin/tenants/new" class="bg-white p-6 rounded shadow max-w-2xl space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">スクール名 *</label>
-          <input type="text" name="name" required class="w-full border rounded px-3 py-2" />
+        <div class="border-b pb-4">
+          <h2 class="text-lg font-bold mb-3">基本情報</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium mb-1">スクール名 *</label>
+              <input type="text" name="name" required class="w-full border rounded px-3 py-2" placeholder="例: ABCプログラミングスクール" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">LINE Channel ID *</label>
+              <input type="text" name="line_channel_id" required class="w-full border rounded px-3 py-2" placeholder="LINE Developers Console から取得" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">LINE Channel Secret *</label>
+              <input type="text" name="line_channel_secret" required class="w-full border rounded px-3 py-2" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">LINE Channel Access Token *</label>
+              <textarea name="line_channel_access_token" required rows={2} class="w-full border rounded px-3 py-2"></textarea>
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel ID *</label>
-          <input type="text" name="line_channel_id" required class="w-full border rounded px-3 py-2" />
+
+        <div class="border-b pb-4">
+          <h2 class="text-lg font-bold mb-3">スクール情報（重要）</h2>
+          <p class="text-xs text-gray-500 mb-2">AIがユーザーと会話する際のコンテキストになります。できるだけ詳しく記載してください。</p>
+          <textarea name="school_context" rows={5} class="w-full border rounded px-3 py-2" placeholder="例: ABCプログラミングスクールは、未経験からWebエンジニア転職を目指す方向けのオンラインスクールです。&#10;&#10;特徴:&#10;- 3ヶ月の集中カリキュラム&#10;- 現役エンジニアによる1on1メンタリング&#10;- 転職保証付き&#10;&#10;無料相談会では、受講生の転職実績やカリキュラムの詳細をご紹介します。"></textarea>
         </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel Secret *</label>
-          <input type="text" name="line_channel_secret" required class="w-full border rounded px-3 py-2" />
+
+        <div class="border-b pb-4">
+          <h2 class="text-lg font-bold mb-3">会話フロー設定</h2>
+          <p class="text-xs text-gray-500 mb-2">推奨設定がプリセット済み。カスタマイズも可能です。</p>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium mb-1">シナリオ設定 (JSON)</label>
+              <textarea name="scenario_config" rows={8} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.scenario_config, null, 2)}</textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">ヒアリング項目 (JSON)</label>
+              <textarea name="hearing_config" rows={8} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.hearing_config, null, 2)}</textarea>
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel Access Token *</label>
-          <textarea name="line_channel_access_token" required rows={2} class="w-full border rounded px-3 py-2"></textarea>
+
+        <div class="border-b pb-4">
+          <h2 class="text-lg font-bold mb-3">リマインド・追客設定</h2>
+          <textarea name="reminder_config" rows={8} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.reminder_config, null, 2)}</textarea>
         </div>
+
         <div>
-          <label class="block text-sm font-medium mb-1">スクール情報（AIへのコンテキスト）</label>
-          <textarea name="school_context" rows={3} class="w-full border rounded px-3 py-2" placeholder="スクールの特徴、コース内容など"></textarea>
+          <h2 class="text-lg font-bold mb-3">詳細設定</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium mb-1">トーン設定 (JSON)</label>
+              <textarea name="tone_config" rows={4} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.tone_config, null, 2)}</textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">ガードレール設定 (JSON)</label>
+              <textarea name="guardrail_config" rows={4} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.guardrail_config, null, 2)}</textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">スタッフ通知設定 (JSON)</label>
+              <p class="text-xs text-gray-500 mb-1">staff_line_user_ids に通知先スタッフのLINE User IDを追加してください</p>
+              <textarea name="notification_config" rows={4} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.notification_config, null, 2)}</textarea>
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">シナリオ設定 (JSON)</label>
-          <textarea name="scenario_config" rows={6} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder='{"steps": []}'></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">ヒアリング設定 (JSON)</label>
-          <textarea name="hearing_config" rows={4} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder='{"items": []}'></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">リマインダー設定 (JSON)</label>
-          <textarea name="reminder_config" rows={4} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder="{}"></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">トーン設定 (JSON)</label>
-          <textarea name="tone_config" rows={3} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder="{}"></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">ガードレール設定 (JSON)</label>
-          <textarea name="guardrail_config" rows={3} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder="{}"></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">通知設定 (JSON)</label>
-          <textarea name="notification_config" rows={3} class="w-full border rounded px-3 py-2 font-mono text-sm" placeholder="{}"></textarea>
-        </div>
-        <button type="submit" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">作成</button>
+
+        <button type="submit" class="w-full bg-indigo-600 text-white px-6 py-3 rounded hover:bg-indigo-700 text-lg font-bold">テナントを作成</button>
       </form>
     </Layout>
   );
@@ -511,35 +539,111 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
   const id = c.req.param('id');
   const supabase = getSupabaseClient(c.env);
   const { data: tenant } = await supabase.from('tenants').select('name').eq('id', id).single();
-  const metrics = await getFunnelMetrics(id, c.env);
+  const analytics = await getDetailedAnalytics(id, c.env);
 
   return c.html(
     <Layout title="分析">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - ファネル分析</h1>
+        <h1 class="text-2xl font-bold">{tenant?.name} - 詳細分析</h1>
         <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
       </div>
 
-      {metrics ? (
+      {analytics ? (
         <div>
-          <div class="grid grid-cols-5 gap-4 mb-8">
-            <MetricCard label="総ユーザー" value={metrics.total_users} />
-            <MetricCard label="予約済み" value={metrics.booked_users} />
-            <MetricCard label="相談済み" value={metrics.consulted_users} />
-            <MetricCard label="入会済み" value={metrics.enrolled_users} />
-            <MetricCard label="着座率" value={metrics.attendance_rate != null ? `${metrics.attendance_rate}%` : '-'} highlight />
+          {/* KPI Summary */}
+          <div class="grid grid-cols-5 gap-4 mb-6">
+            <MetricCard label="総ユーザー" value={analytics.funnel.total_users} />
+            <MetricCard label="予約済み" value={analytics.funnel.booked_users} />
+            <MetricCard label="相談済み" value={analytics.funnel.consulted_users} />
+            <MetricCard label="入会済み" value={analytics.funnel.enrolled_users} />
+            <MetricCard label="着座率" value={analytics.funnel.attendance_rate != null ? `${analytics.funnel.attendance_rate}%` : '-'} highlight />
           </div>
 
-          {/* Funnel bar chart */}
-          <div class="bg-white p-6 rounded shadow">
-            <h2 class="text-lg font-bold mb-4">ファネル</h2>
-            <div class="space-y-3">
-              <FunnelBar label="友だち追加" value={metrics.total_users} max={metrics.total_users} color="bg-blue-500" />
-              <FunnelBar label="予約" value={metrics.booked_users} max={metrics.total_users} color="bg-yellow-500" />
-              <FunnelBar label="相談実施" value={metrics.consulted_users} max={metrics.total_users} color="bg-green-500" />
-              <FunnelBar label="入会" value={metrics.enrolled_users} max={metrics.total_users} color="bg-indigo-500" />
+          {/* Conversion Rates */}
+          <div class="bg-white p-6 rounded shadow mb-6">
+            <h2 class="text-lg font-bold mb-4">コンバージョン率</h2>
+            <div class="grid grid-cols-4 gap-4">
+              <div class="text-center p-3 bg-blue-50 rounded">
+                <p class="text-sm text-gray-600">友だち→予約</p>
+                <p class="text-2xl font-bold text-blue-600">{analytics.conversion_rates.friend_to_booking ?? '-'}%</p>
+              </div>
+              <div class="text-center p-3 bg-yellow-50 rounded">
+                <p class="text-sm text-gray-600">予約→着座</p>
+                <p class="text-2xl font-bold text-yellow-600">{analytics.conversion_rates.booking_to_attendance ?? '-'}%</p>
+              </div>
+              <div class="text-center p-3 bg-green-50 rounded">
+                <p class="text-sm text-gray-600">着座→入会</p>
+                <p class="text-2xl font-bold text-green-600">{analytics.conversion_rates.attendance_to_enrollment ?? '-'}%</p>
+              </div>
+              <div class="text-center p-3 bg-indigo-50 rounded">
+                <p class="text-sm text-gray-600">全体CVR</p>
+                <p class="text-2xl font-bold text-indigo-600">{analytics.conversion_rates.overall ?? '-'}%</p>
+              </div>
             </div>
           </div>
+
+          {/* Funnel visualization */}
+          <div class="bg-white p-6 rounded shadow mb-6">
+            <h2 class="text-lg font-bold mb-4">ファネル</h2>
+            <div class="space-y-3">
+              <FunnelBar label="友だち追加" value={analytics.funnel.total_users} max={analytics.funnel.total_users} color="bg-blue-500" />
+              <FunnelBar label="予約" value={analytics.funnel.booked_users} max={analytics.funnel.total_users} color="bg-yellow-500" />
+              <FunnelBar label="相談実施" value={analytics.funnel.consulted_users} max={analytics.funnel.total_users} color="bg-green-500" />
+              <FunnelBar label="入会" value={analytics.funnel.enrolled_users} max={analytics.funnel.total_users} color="bg-indigo-500" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            {/* Engagement */}
+            <div class="bg-white p-6 rounded shadow">
+              <h2 class="text-lg font-bold mb-4">エンゲージメント</h2>
+              <div class="space-y-3">
+                <div class="flex justify-between"><span class="text-gray-600">平均メッセージ数/ユーザー</span><span class="font-bold">{analytics.engagement.avg_messages_per_user}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">ヒアリング回答率</span><span class="font-bold">{analytics.engagement.avg_hearing_completion_rate}%</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">停滞ユーザー</span><span class="font-bold text-red-600">{analytics.engagement.stalled_users}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">離脱ユーザー</span><span class="font-bold">{analytics.engagement.dropped_users}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">ブロック</span><span class="font-bold">{analytics.engagement.blocked_users}</span></div>
+              </div>
+            </div>
+
+            {/* Bookings */}
+            <div class="bg-white p-6 rounded shadow">
+              <h2 class="text-lg font-bold mb-4">予約状況</h2>
+              <div class="space-y-3">
+                <div class="flex justify-between"><span class="text-gray-600">総予約数</span><span class="font-bold">{analytics.bookings.total}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">確定中</span><span class="font-bold text-blue-600">{analytics.bookings.confirmed}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">ノーショー</span><span class="font-bold text-red-600">{analytics.bookings.no_show}</span></div>
+                <div class="flex justify-between"><span class="text-gray-600">ノーショー率</span><span class={`font-bold ${(analytics.bookings.no_show_rate || 0) > 20 ? 'text-red-600' : 'text-green-600'}`}>{analytics.bookings.no_show_rate ?? '-'}%</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity */}
+          <div class="bg-white p-6 rounded shadow mb-6">
+            <h2 class="text-lg font-bold mb-4">直近7日間</h2>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="text-center p-3 bg-gray-50 rounded">
+                <p class="text-sm text-gray-600">新規ユーザー</p>
+                <p class="text-2xl font-bold">{analytics.recent_activity.new_users_7d}</p>
+              </div>
+              <div class="text-center p-3 bg-gray-50 rounded">
+                <p class="text-sm text-gray-600">予約</p>
+                <p class="text-2xl font-bold">{analytics.recent_activity.bookings_7d}</p>
+              </div>
+              <div class="text-center p-3 bg-gray-50 rounded">
+                <p class="text-sm text-gray-600">相談実施</p>
+                <p class="text-2xl font-bold">{analytics.recent_activity.consultations_7d}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Action health */}
+          {(analytics.actions.failed_24h > 0 || analytics.actions.pending > 10) && (
+            <div class="bg-yellow-50 border border-yellow-200 p-4 rounded">
+              <h3 class="font-bold text-yellow-700 mb-2">アクション状態</h3>
+              <p class="text-sm">待機: {analytics.actions.pending} / 完了(24h): {analytics.actions.completed_24h} / 失敗(24h): <span class="text-red-600 font-bold">{analytics.actions.failed_24h}</span></p>
+            </div>
+          )}
         </div>
       ) : (
         <p class="text-gray-500">データがまだありません</p>

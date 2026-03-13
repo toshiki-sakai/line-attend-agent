@@ -5,7 +5,7 @@ import { getSupabaseClient } from '../utils/supabase';
 import { invalidateTenantCache } from '../config/tenant-config';
 import { createTenantSchema, updateTenantSchema, createSlotSchema, paginationSchema } from '../utils/admin-validators';
 import { uuidSchema } from '../utils/validation';
-import { getFunnelMetrics, getAllFunnelMetrics } from '../services/analytics';
+import { getFunnelMetrics, getAllFunnelMetrics, getDetailedAnalytics } from '../services/analytics';
 import { verifySessionToken } from '../middleware/security';
 
 const admin = new Hono<{ Bindings: Env }>();
@@ -208,6 +208,14 @@ admin.get('/admin/api/tenants/:id/analytics', async (c) => {
 
 admin.get('/admin/api/analytics', async (c) => {
   const data = await getAllFunnelMetrics(c.env);
+  return c.json({ data });
+});
+
+// Detailed analytics for a tenant
+admin.get('/admin/api/tenants/:id/analytics/detailed', async (c) => {
+  const id = c.req.param('id');
+  const data = await getDetailedAnalytics(id, c.env);
+  if (!data) return c.json({ error: 'No data' }, 404);
   return c.json({ data });
 });
 
