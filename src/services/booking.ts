@@ -105,43 +105,85 @@ export async function createBooking(
 export function buildBookingFlexMessage(slots: AvailableSlot[]): unknown {
   return {
     type: 'carousel',
-    contents: slots.map((slot) => ({
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          { type: 'text', text: formatDateJST(slot.start_at), weight: 'bold', size: 'lg' },
-          {
-            type: 'text',
-            text: `${formatTimeJST(slot.start_at)} 〜 ${formatTimeJST(slot.end_at)}`,
-            size: 'md',
-            color: '#666666',
-          },
-          {
-            type: 'text',
-            text: `残り${slot.max_bookings - slot.current_bookings}枠`,
-            size: 'sm',
-            color: '#FF6B6B',
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'button',
-            action: {
-              type: 'postback',
-              label: 'この日程で予約する',
-              data: `book:${slot.id}`,
+    contents: slots.map((slot) => {
+      const remaining = slot.max_bookings - slot.current_bookings;
+      const isLimitedSlots = remaining <= 2;
+
+      return {
+        type: 'bubble',
+        size: 'kilo',
+        header: {
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: '#4CAF50',
+          paddingAll: '12px',
+          contents: [
+            {
+              type: 'text',
+              text: '無料相談会',
+              color: '#FFFFFF',
+              size: 'xs',
+              weight: 'bold',
             },
-            style: 'primary',
-            color: '#4CAF50',
-          },
-        ],
-      },
-    })),
+          ],
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          paddingAll: '16px',
+          contents: [
+            {
+              type: 'text',
+              text: formatDateJST(slot.start_at),
+              weight: 'bold',
+              size: 'lg',
+              color: '#333333',
+            },
+            {
+              type: 'text',
+              text: `${formatTimeJST(slot.start_at)} 〜 ${formatTimeJST(slot.end_at)}`,
+              size: 'md',
+              color: '#666666',
+              margin: 'sm',
+            },
+            {
+              type: 'text',
+              text: isLimitedSlots ? `残り${remaining}枠！` : `残り${remaining}枠`,
+              size: 'sm',
+              color: isLimitedSlots ? '#FF3B30' : '#999999',
+              weight: isLimitedSlots ? 'bold' : 'regular',
+              margin: 'md',
+            },
+            {
+              type: 'text',
+              text: 'オンライン（Zoom）で約30分',
+              size: 'xs',
+              color: '#999999',
+              margin: 'sm',
+            },
+          ],
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          paddingAll: '12px',
+          contents: [
+            {
+              type: 'button',
+              action: {
+                type: 'postback',
+                label: 'この日程で予約する',
+                data: `book:${slot.id}`,
+                displayText: `${formatDateJST(slot.start_at)} ${formatTimeJST(slot.start_at)}で予約します`,
+              },
+              style: 'primary',
+              color: '#4CAF50',
+              height: 'sm',
+            },
+          ],
+        },
+      };
+    }),
   };
 }

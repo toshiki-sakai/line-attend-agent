@@ -50,8 +50,25 @@ export class FlowEngine {
       }
 
       if (aiResponse.is_hearing_complete) {
+        // Update insight summary with a comprehensive summary for the consultation
+        if (aiResponse.insight) {
+          await this.updateInsightSummary(context.endUser.id, aiResponse.insight);
+        }
         await this.advanceStep(context);
       }
+    } else if (purpose === 'follow_up') {
+      // User responded to a follow-up! Cancel remaining follow-ups and re-engage
+      const supabase = getSupabaseClient(this.env);
+      await cancelPendingActions(context.endUser.id, this.env, { action_type: 'follow_up' });
+
+      // Reset follow_up_count since user re-engaged
+      await supabase
+        .from('end_users')
+        .update({ follow_up_count: 0, last_response_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', context.endUser.id);
+
+      const aiResponse = await handleUnexpectedInput(context, userMessage);
+      await this.processAIResponse(context, aiResponse);
     } else {
       const aiResponse = await handleUnexpectedInput(context, userMessage);
       await this.processAIResponse(context, aiResponse);
@@ -259,6 +276,14 @@ export class FlowEngine {
     await supabase
       .from('end_users')
       .update({ last_response_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', endUserId);
+  }
+
+  private async updateInsightSummary(endUserId: string, insight: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({ insight_summary: insight, updated_at: new Date().toISOString() })
       .eq('id', endUserId);
   }
 

@@ -162,13 +162,36 @@ export async function handleUnexpectedInput(
   context: FlowContext,
   userMessage: string
 ): Promise<AIResponse> {
+  const stepId = context.currentStep.id;
+  const status = context.endUser.status;
+  const hearingData = context.endUser.hearing_data || {};
+  const hasHearingData = Object.keys(hearingData).length > 0;
+
+  // Context-aware guidance based on where the user is in the funnel
+  let situationGuidance: string;
+  if (status === 'booked') {
+    situationGuidance = `ユーザーは予約済みです。相談会に向けた期待感を高め、不安を解消してください。
+日程の変更希望があれば柔軟に対応を。キャンセルしたい場合も否定せず、理由を聞いて再提案を。`;
+  } else if (stepId === 'booking_invite' || stepId === 'pre_booking_nudge') {
+    situationGuidance = `ユーザーは予約案内の段階です。
+${hasHearingData ? `ヒアリング情報: ${JSON.stringify(hearingData)} を踏まえて、「あなたの場合は相談会で〇〇について具体的に聞けますよ」と価値を伝えてください。` : ''}
+予約を迷っている場合: 「30分だけなのでお気軽に」「他の方からも好評ですよ」等の安心感を。
+断りの場合: 無理に勧めない。「またいつでもメッセージくださいね」で締める。`;
+  } else {
+    situationGuidance = `ユーザーは「${stepId}」ステップにいます。
+ユーザーからの返信に対して、共感を示しつつ、最終的には無料相談会への参加を自然に後押しする方向で対応してください。`;
+  }
+
   const systemPrompt =
     buildSystemPrompt(context.tenant, context.endUser, 'general') +
     `\n\n## 今の状況
-ユーザーは「${context.currentStep.id}」ステップにいます。
-このステップでは定型メッセージを送信した直後です。
-ユーザーからの返信に対して、適切に対応してください。
-予約や相談会に関する質問には丁寧に答え、次のステップへの誘導を心がけてください。
+${situationGuidance}
+
+### 応答ルール
+- まず共感・受け止めから
+- 質問には丁寧に答える
+- 答えられない質問→「相談会で詳しくお話できますよ！」
+- 常にゴール（相談会参加）を意識するが、押し売りはしない
 
 ### 応答フォーマット（JSON以外出力禁止）
 { "reply_message": "（150文字以内）", "escalate_to_human": false }`;
