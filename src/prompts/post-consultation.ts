@@ -77,6 +77,14 @@ function getPostConsultationGuidance(actionType: string, endUser: EndUser): stri
 - 場所・時間の再確認
 - 「楽しみにしていますね！」で締める`;
 
+    case 'no_show_recovery':
+      return `**ノーショー復帰メッセージ**（相談会に来なかったユーザーへ）
+- 絶対に責めない。「ご都合が合わなかったでしょうか？」のトーン
+- ${hearingKeys.length > 0 ? `「以前お話しいただいた${hearingKeys[0]}のこと、ぜひお話できればと思っています」` : '「ぜひお話できればと思っています」'}
+- 再予約を柔軟に案内: 「また別の日程でお気軽にどうぞ」
+- プレッシャーゼロ。ドアを開けておくだけ
+- 150文字以内`;
+
     default:
       return `汎用フォローメッセージ。温かさ＋パーソナライズを心がける。`;
   }

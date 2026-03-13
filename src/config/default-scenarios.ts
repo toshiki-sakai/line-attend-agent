@@ -1,4 +1,4 @@
-import type { ScenarioConfig, HearingConfig, ReminderConfig, ToneConfig, GuardrailConfig, NotificationConfig } from '../types';
+import type { ScenarioConfig, HearingConfig, ReminderConfig, ToneConfig, GuardrailConfig, NotificationConfig, PostConsultationConfig } from '../types';
 
 /**
  * Default scenario template for online school attendance optimization.
@@ -157,6 +157,14 @@ export const DEFAULT_NOTIFICATION_CONFIG: NotificationConfig = {
   notify_on: ['human_handoff', 'no_show', 'stalled', 'error'],
 };
 
+export const DEFAULT_POST_CONSULTATION_CONFIG: PostConsultationConfig = {
+  actions: [
+    { type: 'thank_you', delay_hours: 1, method: 'ai' },
+    { type: 'enrollment_guide', delay_hours: 24, method: 'ai', condition: 'status != enrolled' },
+    { type: 'follow_up', delay_hours: 72, method: 'ai', condition: 'status != enrolled' },
+  ],
+};
+
 export function getDefaultConfigs(): {
   scenario_config: ScenarioConfig;
   hearing_config: HearingConfig;
@@ -164,6 +172,7 @@ export function getDefaultConfigs(): {
   tone_config: ToneConfig;
   guardrail_config: GuardrailConfig;
   notification_config: NotificationConfig;
+  post_consultation_config: PostConsultationConfig;
 } {
   return {
     scenario_config: DEFAULT_SCENARIO_CONFIG,
@@ -172,5 +181,6 @@ export function getDefaultConfigs(): {
     tone_config: DEFAULT_TONE_CONFIG,
     guardrail_config: DEFAULT_GUARDRAIL_CONFIG,
     notification_config: DEFAULT_NOTIFICATION_CONFIG,
+    post_consultation_config: DEFAULT_POST_CONSULTATION_CONFIG,
   };
 }

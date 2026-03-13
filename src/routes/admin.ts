@@ -8,6 +8,8 @@ import { uuidSchema } from '../utils/validation';
 import { getFunnelMetrics, getAllFunnelMetrics, getDetailedAnalytics } from '../services/analytics';
 import { verifySessionToken } from '../middleware/security';
 import { getDefaultConfigs } from '../config/default-scenarios';
+import { schedulePostConsultationActions } from '../services/action-executors';
+import type { Tenant, EndUser } from '../types';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -274,12 +276,31 @@ admin.put('/admin/api/tenants/:id/bookings/:bookingId', async (c) => {
 
   if (error) return c.json({ error: error.message }, 500);
 
-  // If marked as consulted, update end_user status too
+  // If marked as consulted, update end_user status and schedule post-consultation actions
   if (body.status === 'consulted' && data) {
-    await supabase
+    const { data: endUserData } = await supabase
       .from('end_users')
       .update({ status: 'consulted', updated_at: new Date().toISOString() })
-      .eq('id', data.end_user_id);
+      .eq('id', data.end_user_id)
+      .select()
+      .single();
+
+    if (endUserData) {
+      const { data: tenantData } = await supabase
+        .from('tenants')
+        .select('*')
+        .eq('id', c.req.param('id'))
+        .single();
+
+      if (tenantData) {
+        await schedulePostConsultationActions(
+          tenantData as unknown as Tenant,
+          endUserData as unknown as EndUser,
+          bookingId,
+          c.env
+        );
+      }
+    }
   }
 
   return c.json({ data });

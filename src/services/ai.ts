@@ -3,8 +3,11 @@ import { buildSystemPrompt } from '../prompts/system-base';
 import { buildHearingPrompt } from '../prompts/hearing';
 import { buildFollowUpPrompt } from '../prompts/follow-up';
 import { buildPostConsultationPrompt } from '../prompts/post-consultation';
+import { buildHearingRecoveryPrompt } from '../prompts/hearing-recovery';
+import { buildNurturePrompt } from '../prompts/pre-consultation-nurture';
 import { getSupabaseClient } from '../utils/supabase';
 import { logger } from '../utils/logger';
+import { detectIntent, getIntentGuidance } from './intent-detector';
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
@@ -160,12 +163,17 @@ export async function generatePostConsultationResponse(
 
 export async function handleUnexpectedInput(
   context: FlowContext,
-  userMessage: string
+  userMessage: string,
+  detectedIntentOverride?: string
 ): Promise<AIResponse> {
   const stepId = context.currentStep.id;
   const status = context.endUser.status;
   const hearingData = context.endUser.hearing_data || {};
   const hasHearingData = Object.keys(hearingData).length > 0;
+
+  // Detect user intent for smarter responses
+  const intent = (detectedIntentOverride as ReturnType<typeof detectIntent>) || detectIntent(userMessage);
+  const intentGuidance = getIntentGuidance(intent);
 
   // Context-aware guidance based on where the user is in the funnel
   let situationGuidance: string;
@@ -186,6 +194,7 @@ ${hasHearingData ? `ヒアリング情報: ${JSON.stringify(hearingData)} を踏
     buildSystemPrompt(context.tenant, context.endUser, 'general') +
     `\n\n## 今の状況
 ${situationGuidance}
+${intentGuidance ? `\n${intentGuidance}` : ''}
 
 ### 応答ルール
 - まず共感・受け止めから
@@ -194,7 +203,7 @@ ${situationGuidance}
 - 常にゴール（相談会参加）を意識するが、押し売りはしない
 
 ### 応答フォーマット（JSON以外出力禁止）
-{ "reply_message": "（150文字以内）", "escalate_to_human": false }`;
+{ "reply_message": "（150文字以内）", "escalate_to_human": false, "should_continue_follow_up": ${intent === 'cancel' ? 'false' : 'true'} }`;
 
   const messages: ConversationMessage[] = [
     ...context.conversationHistory,
@@ -202,11 +211,75 @@ ${situationGuidance}
   ];
 
   try {
-    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.5 });
+    const response = await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.5 });
+    response.detected_intent = intent;
+    return response;
   } catch (error) {
     logger.error('Unexpected input handling failed', { error: String(error) });
     return {
       reply_message: 'すみません、もう少し詳しく教えていただけますか？😊',
+      escalate_to_human: false,
+      detected_intent: intent,
+    };
+  }
+}
+
+export async function generateNurtureResponse(
+  context: FlowContext,
+  stage: 'value_preview' | 'preparation' | 'excitement' | 'day_of' | 'final_countdown',
+  hoursUntilConsultation: number,
+  zoomUrl?: string
+): Promise<AIResponse> {
+  const systemPrompt =
+    buildSystemPrompt(context.tenant, context.endUser, 'nurture') +
+    '\n\n' +
+    buildNurturePrompt(context.tenant, context.endUser, stage, hoursUntilConsultation, zoomUrl);
+
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: `（システム: ${stage}ナーチャリングメッセージを生成してください）` },
+  ];
+
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.5 });
+  } catch (error) {
+    logger.error('Nurture response failed', { error: String(error), stage });
+    // Stage-specific fallback messages
+    const fallbacks: Record<string, string> = {
+      value_preview: '相談会で具体的なアドバイスをお伝えできるの、楽しみにしています😊',
+      preparation: '相談会で一番聞きたいことを1つ考えておいてくださいね😊',
+      excitement: '明日はよろしくお願いします！リラックスして来てくださいね😊',
+      day_of: `今日はよろしくお願いします！${zoomUrl ? `\nこちらからご参加ください: ${zoomUrl}` : ''}`,
+      final_countdown: `もうすぐですね！楽しみにしています😊${zoomUrl ? `\n${zoomUrl}` : ''}`,
+    };
+    return {
+      reply_message: fallbacks[stage] || '相談会、楽しみにしていますね😊',
+      escalate_to_human: false,
+    };
+  }
+}
+
+export async function generateHearingRecoveryResponse(
+  context: FlowContext
+): Promise<AIResponse> {
+  const systemPrompt =
+    buildSystemPrompt(context.tenant, context.endUser, 'follow_up') +
+    '\n\n' +
+    buildHearingRecoveryPrompt(context.tenant, context.endUser);
+
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: '（システム: ヒアリング中断ユーザーへの再開メッセージを生成してください）' },
+  ];
+
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.6 });
+  } catch (error) {
+    logger.error('Hearing recovery response failed', { error: String(error) });
+    return {
+      reply_message: 'その後いかがですか？何か気になることがあれば、いつでもメッセージくださいね😊',
+      should_continue_follow_up: true,
+      recommended_next_timing_hours: 72,
       escalate_to_human: false,
     };
   }

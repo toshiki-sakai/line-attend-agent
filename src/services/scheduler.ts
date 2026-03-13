@@ -1,8 +1,10 @@
-import type { Env, Tenant, EndUser, ScheduledAction } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, ScheduledAction } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { FlowEngine } from './flow-engine';
 import { executeAction } from './action-executors';
+import { generatePostConsultationResponse, getConversationHistory } from './ai';
 import { pushMessage } from './line';
+import { validateMessage } from '../guards/ai-guardrails';
 import { notifyStaff } from './notification';
 import { cancelPendingActions } from '../utils/scheduled-actions';
 import { logger } from '../utils/logger';
@@ -195,17 +197,8 @@ async function detectNoShows(env: Env): Promise<void> {
         .update({ status: 'no_show', updated_at: new Date().toISOString() })
         .eq('id', bookingData.id);
 
-      // Personalized no-show message based on hearing data
-      const hearingData = endUser.hearing_data as Record<string, string> | null;
-      const name = endUser.display_name || 'ゲスト';
-      let noShowMessage: string;
-
-      if (hearingData && Object.keys(hearingData).length > 0) {
-        noShowMessage = `${name}さん、今日はご都合が合わなかったでしょうか？\n\n以前お話しいただいたことを踏まえて、ぜひお話できればと思っています。\nまた別の日程でお気軽にお選びくださいね😊`;
-      } else {
-        noShowMessage = `${name}さん、今日はご都合が悪かったでしょうか？\nまたお気軽に日程をお選びくださいね😊`;
-      }
-
+      // Generate personalized no-show recovery message via AI
+      const noShowMessage = await generateNoShowMessage(tenant, endUser, env);
       await pushMessage(tenant, endUser.line_user_id, noShowMessage);
 
       await supabase
@@ -218,6 +211,7 @@ async function detectNoShows(env: Env): Promise<void> {
         .eq('id', endUser.id);
 
       await cancelPendingActions(endUser.id, env, { action_type: 'reminder' });
+      await cancelPendingActions(endUser.id, env, { action_type: 'nurture' });
 
       await notifyStaff(tenant, {
         type: 'no_show',
@@ -233,4 +227,35 @@ async function detectNoShows(env: Env): Promise<void> {
       });
     }
   }
+}
+
+/**
+ * Generate a personalized no-show recovery message using AI.
+ * Falls back to a simple template if AI fails.
+ */
+async function generateNoShowMessage(tenant: Tenant, endUser: EndUser, env: Env): Promise<string> {
+  const name = endUser.display_name || 'ゲスト';
+
+  try {
+    const history = await getConversationHistory(endUser.id, tenant.id, env);
+    const context: FlowContext = {
+      tenant,
+      endUser,
+      currentStep: { id: 'no_show_recovery', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
+      hearingData: endUser.hearing_data || {},
+      conversationHistory: history,
+      env,
+    };
+
+    const response = await generatePostConsultationResponse(context, 'no_show_recovery');
+    const guardrailResult = validateMessage(response.reply_message, tenant);
+    if (guardrailResult.passed) {
+      return response.reply_message;
+    }
+  } catch (error) {
+    logger.warn('AI no-show message failed, using fallback', { error: String(error) });
+  }
+
+  // Fallback template
+  return `${name}さん、今日はご都合が合わなかったでしょうか？\nまた別の日程でお気軽にお選びくださいね😊`;
 }

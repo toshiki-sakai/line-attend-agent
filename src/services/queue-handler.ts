@@ -46,7 +46,7 @@ export async function handleQueueMessage(
             await handleMessage(tenant, event, env, flowEngine);
             break;
           case 'postback':
-            await handlePostback(tenant, event, env);
+            await handlePostback(tenant, event, env, flowEngine);
             break;
         }
 
@@ -204,7 +204,8 @@ async function handleMessage(
 async function handlePostback(
   tenant: Tenant,
   event: LineWebhookEvent,
-  env: Env
+  env: Env,
+  flowEngine: FlowEngine
 ): Promise<void> {
   if (!event.postback) return;
 
@@ -250,9 +251,14 @@ async function handlePostback(
       step_at_time: 'booked',
     });
 
-    // Schedule reminders and pre-consultation nurture
+    // Schedule reminders
     await scheduleBookingReminders(tenant, endUser as EndUser, booking, env);
-    await schedulePreConsultationNurture(tenant, endUser as EndUser, booking, env);
+
+    // Execute booking_confirmed scenario step if defined
+    const bookedStep = tenant.scenario_config?.steps?.find((s) => s.trigger === 'booking_confirmed');
+    if (bookedStep) {
+      await flowEngine.executeStep(tenant, endUser as EndUser, bookedStep, env);
+    }
   } else {
     await pushMessage(
       tenant,
@@ -298,45 +304,6 @@ async function scheduleBookingReminders(
   if (rows.length > 0) {
     await supabase.from('scheduled_actions').insert(rows);
   }
-}
-
-/**
- * Schedule a "warm-up" message between booking and consultation.
- * This reduces no-shows by keeping the user engaged and building anticipation.
- * Sent ~halfway between now and the consultation date (minimum 1 day after booking).
- */
-async function schedulePreConsultationNurture(
-  tenant: Tenant,
-  endUser: EndUser,
-  booking: Record<string, unknown>,
-  env: Env
-): Promise<void> {
-  const supabase = getSupabaseClient(env);
-  const scheduledAt = new Date(booking.scheduled_at as string);
-  const now = new Date();
-  const daysBetween = (scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-
-  // Only send nurture if consultation is more than 2 days away
-  if (daysBetween < 2) return;
-
-  // Schedule halfway point (at least 1 day after now, at least 1 day before consultation)
-  const halfwayMs = now.getTime() + (scheduledAt.getTime() - now.getTime()) / 2;
-  const executeAt = new Date(Math.max(halfwayMs, now.getTime() + 24 * 60 * 60 * 1000));
-
-  // Don't schedule if it would be too close to the consultation
-  if (scheduledAt.getTime() - executeAt.getTime() < 12 * 60 * 60 * 1000) return;
-
-  await supabase.from('scheduled_actions').insert({
-    tenant_id: tenant.id,
-    end_user_id: endUser.id,
-    action_type: 'post_consultation',
-    action_payload: {
-      action_type: 'personalized_remind',
-      booking_id: booking.id,
-    },
-    execute_at: executeAt.toISOString(),
-    status: 'pending',
-  });
 }
 
 function calculateReminderTime(timing: string, scheduledAt: Date): Date | null {

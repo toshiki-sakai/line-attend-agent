@@ -1,12 +1,13 @@
-import type { Env, Tenant, EndUser, FlowContext, ScheduledAction } from '../types';
+import type { Env, Tenant, EndUser, Booking, FlowContext, ScheduledAction, PostConsultationConfig } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { FlowEngine } from './flow-engine';
-import { generateFollowUpResponse, generatePostConsultationResponse, getConversationHistory } from './ai';
+import { generateFollowUpResponse, generatePostConsultationResponse, generateHearingRecoveryResponse, generateNurtureResponse, getConversationHistory } from './ai';
 import { pushMessage } from './line';
 import { validateMessage } from '../guards/ai-guardrails';
 import { notifyStaff } from './notification';
 import { cancelPendingActions } from '../utils/scheduled-actions';
 import { formatDateJST, formatTimeJST } from '../utils/datetime';
+import { calculateNoShowRisk } from './no-show-predictor';
 
 export async function executeAction(
   action: ScheduledAction,
@@ -22,6 +23,9 @@ export async function executeAction(
     .single();
 
   if (!endUser || endUser.is_blocked) return;
+
+  // Skip action execution when staff has taken over
+  if (endUser.is_staff_takeover) return;
 
   const { data: tenant } = await supabase
     .from('tenants')
@@ -45,6 +49,41 @@ export async function executeAction(
     case 'post_consultation':
       await executePostConsultation(action, tenant as Tenant, endUser as EndUser, env);
       break;
+    case 'nurture':
+      await executeNurture(action, tenant as Tenant, endUser as EndUser, env);
+      break;
+  }
+}
+
+export async function schedulePostConsultationActions(
+  tenant: Tenant,
+  endUser: EndUser,
+  bookingId: string,
+  env: Env
+): Promise<void> {
+  const actions = tenant.post_consultation_config?.actions || [];
+  if (actions.length === 0) return;
+
+  const supabase = getSupabaseClient(env);
+  const now = Date.now();
+
+  const rows = actions.map((action) => ({
+    tenant_id: tenant.id,
+    end_user_id: endUser.id,
+    action_type: 'post_consultation' as const,
+    action_payload: {
+      action_type: action.type,
+      booking_id: bookingId,
+      method: action.method,
+      content: action.content,
+      condition: action.condition,
+    },
+    execute_at: new Date(now + action.delay_hours * 60 * 60 * 1000).toISOString(),
+    status: 'pending' as const,
+  }));
+
+  if (rows.length > 0) {
+    await supabase.from('scheduled_actions').insert(rows);
   }
 }
 
@@ -83,16 +122,50 @@ async function executeReminder(
 
   if (!booking) return;
 
+  // Calculate no-show risk to decide reminder strategy
+  const { count: msgCount } = await supabase
+    .from('conversations')
+    .select('*', { count: 'exact', head: true })
+    .eq('end_user_id', endUser.id)
+    .eq('tenant_id', tenant.id)
+    .gte('created_at', booking.created_at);
+
+  const { count: userMsgCount } = await supabase
+    .from('conversations')
+    .select('*', { count: 'exact', head: true })
+    .eq('end_user_id', endUser.id)
+    .eq('tenant_id', tenant.id)
+    .eq('role', 'user')
+    .gte('created_at', booking.created_at);
+
+  const totalMsgs = msgCount || 0;
+  const responseRate = totalMsgs > 0 ? (userMsgCount || 0) / totalMsgs : 0;
+  const risk = calculateNoShowRisk(endUser, booking as unknown as Booking, userMsgCount || 0, responseRate);
+
   let message: string;
 
-  if (reminderType === 'template' && reminderContent) {
+  // High/critical risk: escalate to staff for direct intervention
+  if (risk.level === 'critical') {
+    await notifyStaff(tenant, {
+      type: 'no_show',
+      endUser,
+      reason: `着座リスク: ${risk.score}点（${risk.level}）。${risk.recommended_intervention}`,
+    });
+  }
+
+  if (reminderType === 'template' && reminderContent && risk.level === 'low') {
+    // Low risk: standard template reminder is fine
     message = reminderContent
       .replace(/{zoom_url}/g, booking.zoom_url || '')
       .replace(/{booking_date}/g, formatDateJST(booking.scheduled_at))
       .replace(/{booking_time}/g, formatTimeJST(booking.scheduled_at));
   } else {
+    // Medium+ risk or AI reminder: use nurture-style personalized message
+    const hoursUntil = Math.max(0, (new Date(booking.scheduled_at).getTime() - Date.now()) / (1000 * 60 * 60));
+    const stage = hoursUntil < 2 ? 'final_countdown' : hoursUntil < 8 ? 'day_of' : hoursUntil < 30 ? 'excitement' : 'preparation';
+
     const context = await buildFlowContext(tenant, endUser, 'reminder', env);
-    const response = await generatePostConsultationResponse(context, 'personalized_remind');
+    const response = await generateNurtureResponse(context, stage, hoursUntil, booking.zoom_url || undefined);
     message = response.reply_message;
   }
 
@@ -126,7 +199,16 @@ async function executeFollowUp(
   }
 
   const context = await buildFlowContext(tenant, endUser, 'follow_up', env);
-  const response = await generateFollowUpResponse(context);
+
+  // Check if this user has incomplete hearing data - use recovery prompt
+  const hearingItems = tenant.hearing_config?.items || [];
+  const answeredKeys = Object.keys(endUser.hearing_data || {});
+  const isHearingIncomplete = hearingItems.length > 0 && answeredKeys.length > 0 && answeredKeys.length < hearingItems.length;
+  const isInHearingStep = endUser.current_step?.includes('hearing');
+
+  const response = isHearingIncomplete || isInHearingStep
+    ? await generateHearingRecoveryResponse(context)
+    : await generateFollowUpResponse(context);
 
   if (response.escalate_to_human) {
     await handleMaxFollowUpReached(tenant, endUser, followUpConfig.escalation_message, env);
@@ -211,6 +293,83 @@ async function executePostConsultation(
     role: 'assistant',
     content: message,
     step_at_time: 'post_consultation',
+  });
+}
+
+async function executeNurture(
+  action: ScheduledAction,
+  tenant: Tenant,
+  endUser: EndUser,
+  env: Env
+): Promise<void> {
+  const payload = action.action_payload;
+  const stage = payload.stage as 'value_preview' | 'preparation' | 'excitement' | 'day_of' | 'final_countdown';
+  const bookingId = payload.booking_id as string;
+  const zoomUrl = payload.zoom_url as string | undefined;
+
+  const supabase = getSupabaseClient(env);
+
+  // Verify booking is still confirmed
+  const { data: booking } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', bookingId)
+    .eq('status', 'confirmed')
+    .single();
+
+  if (!booking) return;
+
+  const consultationTime = new Date(booking.scheduled_at).getTime();
+  const hoursUntil = Math.max(0, (consultationTime - Date.now()) / (1000 * 60 * 60));
+
+  // Check no-show risk for this user
+  const { count: msgCount } = await supabase
+    .from('conversations')
+    .select('*', { count: 'exact', head: true })
+    .eq('end_user_id', endUser.id)
+    .eq('tenant_id', tenant.id)
+    .gte('created_at', booking.created_at);
+
+  const { count: userMsgCount } = await supabase
+    .from('conversations')
+    .select('*', { count: 'exact', head: true })
+    .eq('end_user_id', endUser.id)
+    .eq('tenant_id', tenant.id)
+    .eq('role', 'user')
+    .gte('created_at', booking.created_at);
+
+  const totalMsgs = msgCount || 0;
+  const responseRate = totalMsgs > 0 ? (userMsgCount || 0) / totalMsgs : 0;
+  const risk = calculateNoShowRisk(endUser, booking as unknown as Booking, userMsgCount || 0, responseRate);
+
+  // Critical risk on day-of stages: alert staff for direct intervention
+  if (risk.level === 'critical' && (stage === 'day_of' || stage === 'final_countdown')) {
+    await notifyStaff(tenant, {
+      type: 'no_show',
+      endUser,
+      reason: `【緊急】相談会まで${Math.round(hoursUntil)}時間。着座リスク: ${risk.score}点。${risk.recommended_intervention}`,
+    });
+  }
+
+  const context = await buildFlowContext(tenant, endUser, 'nurture', env);
+  const response = await generateNurtureResponse(
+    context,
+    stage,
+    hoursUntil,
+    zoomUrl || booking.zoom_url || undefined
+  );
+
+  const guardrailResult = validateMessage(response.reply_message, tenant);
+  if (guardrailResult.passed) {
+    await pushMessage(tenant, endUser.line_user_id, response.reply_message);
+  }
+
+  await supabase.from('conversations').insert({
+    end_user_id: endUser.id,
+    tenant_id: tenant.id,
+    role: 'assistant',
+    content: response.reply_message,
+    step_at_time: `nurture_${stage}`,
   });
 }
 

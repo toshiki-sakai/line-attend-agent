@@ -34,6 +34,7 @@ export interface Tenant {
   tone_config: ToneConfig;
   guardrail_config: GuardrailConfig;
   notification_config: NotificationConfig;
+  post_consultation_config?: PostConsultationConfig;
   school_context: string;
   is_active: boolean;
   created_at: string;
@@ -144,6 +145,7 @@ export interface EndUser {
   last_response_at: string | null;
   source: string | null;
   is_blocked: boolean;
+  is_staff_takeover: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -177,7 +179,7 @@ export interface ScheduledAction {
   id: string;
   tenant_id: string;
   end_user_id: string;
-  action_type: 'scenario_step' | 'reminder' | 'follow_up' | 'post_consultation';
+  action_type: 'scenario_step' | 'reminder' | 'follow_up' | 'post_consultation' | 'nurture';
   action_payload: Record<string, unknown>;
   execute_at: string;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
@@ -216,6 +218,15 @@ export interface FlowContext {
   env: Env;
 }
 
+export type DetectedIntent =
+  | 'defer'
+  | 'hesitant'
+  | 'price_question'
+  | 'cancel'
+  | 'human_request'
+  | 'schedule_change'
+  | 'none';
+
 export interface AIResponse {
   reply_message: string;
   escalate_to_human: boolean;
@@ -224,6 +235,7 @@ export interface AIResponse {
   is_hearing_complete?: boolean;
   should_continue_follow_up?: boolean;
   recommended_next_timing_hours?: number;
+  detected_intent?: DetectedIntent;
 }
 
 export interface StaffNotification {
