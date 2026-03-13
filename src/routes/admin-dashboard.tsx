@@ -629,6 +629,11 @@ dashboard.get('/admin/tenants/:id', async (c) => {
   const reminderConfig = tenant.reminder_config || { pre_consultation: [], no_response_follow_up: { enabled: true, strategy: 'fixed', max_attempts: 4, min_interval_hours: 24, max_interval_hours: 72, escalation_message: '' } };
   const scenarioSteps: ScenarioStep[] = tenant.scenario_config?.steps || [];
 
+  // Fetch AI impact metrics for the hero banner
+  const analytics = await getDetailedAnalytics(id, c.env);
+  const aiPerf = analytics?.ai_performance;
+  const funnel = analytics?.funnel;
+
   return c.html(
     <Layout title={tenant.name}>
       <div class="flex justify-between items-center mb-6">
@@ -639,6 +644,9 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           <a href={`/admin/tenants/${id}/analytics`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">分析</a>
           <a href={`/admin/tenants/${id}/slots`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">予約枠</a>
           <a href={`/admin/tenants/${id}/actions`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">アクション</a>
+          <a href={`/admin/tenants/${id}/sessions`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">AIセッション</a>
+          <a href={`/admin/tenants/${id}/simulator`} class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 text-sm font-medium">AIシミュレーター</a>
+          <a href={`/admin/tenants/${id}/live`} class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 text-sm font-medium">ライブ会話</a>
         </div>
       </div>
 
@@ -646,6 +654,55 @@ dashboard.get('/admin/tenants/:id', async (c) => {
         <p class="text-sm font-medium text-blue-700 mb-1">Webhook URL（LINE Developersに設定）</p>
         <code class="text-sm break-all">{webhookUrl}</code>
       </div>
+
+      {/* API Integration Info */}
+      <div class="bg-emerald-50 border border-emerald-200 rounded p-4 mb-6">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-sm font-medium text-emerald-700">Lステップ API連携</p>
+          <form method="post" action={`/admin/api/tenants/${tenant.id}/api-key`}>
+            <button type="submit" class="text-xs bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700">
+              {tenant.api_key_prefix ? 'APIキーを再生成' : 'APIキーを生成'}
+            </button>
+          </form>
+        </div>
+        {tenant.api_key_prefix ? (
+          <p class="text-xs text-emerald-600">APIキー設定済み（プレフィックス: {tenant.api_key_prefix}...）</p>
+        ) : (
+          <p class="text-xs text-gray-500">APIキーが未設定です。Lステップ連携にはAPIキーの生成が必要です。</p>
+        )}
+        <p class="text-xs text-gray-400 mt-1">Base URL: <code>https://line-attend-agent.toshiki7124.workers.dev/api/v1/</code></p>
+      </div>
+
+      {/* AI Impact Hero Banner */}
+      {aiPerf && funnel && (
+        <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 rounded-xl p-6 mb-6 text-white shadow-lg">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-lg font-bold">AIエージェント パフォーマンス</h2>
+              <p class="text-xs text-white/50">直近7日間</p>
+            </div>
+            <a href={`/admin/tenants/${id}/analytics`} class="text-xs text-indigo-300 hover:text-white transition">詳細 &rarr;</a>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
+              <p class="text-2xl font-black">{aiPerf.auto_resolution_rate}%</p>
+              <p class="text-[10px] text-white/60">AI自動対応率</p>
+            </div>
+            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
+              <p class="text-2xl font-black text-emerald-400">{aiPerf.estimated_hours_saved}h</p>
+              <p class="text-[10px] text-white/60">削減時間</p>
+            </div>
+            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
+              <p class="text-2xl font-black text-amber-400">&yen;{aiPerf.estimated_cost_saved.toLocaleString()}</p>
+              <p class="text-[10px] text-white/60">コスト削減</p>
+            </div>
+            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
+              <p class="text-2xl font-black">{funnel.attendance_rate ?? '--'}%</p>
+              <p class="text-[10px] text-white/60">着座率</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Phase 5: Flow Visualization */}
       {scenarioSteps.length > 0 && (
@@ -2319,6 +2376,496 @@ function actionStatusColor(status: string): string {
     case 'failed': return 'bg-red-100 text-red-700';
     case 'cancelled': return 'bg-gray-100 text-gray-500';
     default: return 'bg-gray-100 text-gray-500';
+  }
+}
+
+// ========================
+// AI Conversation Simulator
+// ========================
+
+dashboard.get('/admin/tenants/:id/simulator', async (c) => {
+  const id = c.req.param('id');
+  const supabase = getSupabaseClient(c.env);
+  const { data: tenant } = await supabase.from('tenants').select('name, hearing_config, scenario_config, tone_config').eq('id', id).single();
+  if (!tenant) return c.redirect('/admin/');
+
+  const hearingItems = (tenant.hearing_config as Record<string, unknown>)?.items as Array<{ id: string; question_hint: string }> || [];
+  const steps = ((tenant.scenario_config as Record<string, unknown>)?.steps as Array<{ id: string; type: string }>) || [];
+  const aiSteps = steps.filter(s => s.type === 'ai');
+
+  return c.html(
+    <Layout title={`AIシミュレーター - ${tenant.name}`}>
+      <div class="max-w-3xl mx-auto">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <a href={`/admin/tenants/${id}`} class="text-sm text-gray-500 hover:text-gray-700">&larr; {tenant.name}</a>
+            <h1 class="text-2xl font-bold mt-1">AIシミュレーター</h1>
+            <p class="text-sm text-gray-500 mt-1">テストユーザーとしてAIと会話してみましょう。実際のLINEメッセージは送信されません。</p>
+          </div>
+        </div>
+
+        {/* Simulator Config */}
+        <div class="bg-white rounded-lg shadow-sm border p-4 mb-4">
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">テストユーザー名</label>
+              <input id="sim-name" type="text" value="テストユーザー" class="w-full border rounded px-3 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">ステップ</label>
+              <select id="sim-step" class="w-full border rounded px-3 py-1.5 text-sm">
+                {aiSteps.map(s => <option value={s.id}>{s.id}</option>)}
+                <option value="booking_invite">booking_invite</option>
+                <option value="booked">booked（予約後）</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">ステータス</label>
+              <select id="sim-status" class="w-full border rounded px-3 py-1.5 text-sm">
+                <option value="active">active</option>
+                <option value="booked">booked</option>
+                <option value="consulted">consulted</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div class="bg-white rounded-lg shadow-sm border overflow-hidden" style="height: 520px; display: flex; flex-direction: column;">
+          <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 flex justify-between items-center">
+            <span class="font-medium text-sm">AI会話プレビュー</span>
+            <button id="sim-reset" class="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded transition">リセット</button>
+          </div>
+
+          <div id="sim-messages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50" style="scroll-behavior: smooth;">
+            <div class="text-center text-xs text-gray-400 py-8">メッセージを入力してAIの応答を確認してください</div>
+          </div>
+
+          <div class="border-t p-3 bg-white">
+            <div class="flex gap-2">
+              <input id="sim-input" type="text" placeholder="メッセージを入力..." class="flex-1 border rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+              <button id="sim-send" class="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">送信</button>
+            </div>
+            <div id="sim-meta" class="mt-2 hidden">
+              <div class="text-xs text-gray-400 space-y-0.5">
+                <div id="sim-extracted" class="hidden"></div>
+                <div id="sim-insight" class="hidden"></div>
+                <div id="sim-intent" class="hidden"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick test scenarios */}
+        <div class="mt-4 bg-white rounded-lg shadow-sm border p-4">
+          <p class="text-xs font-medium text-gray-600 mb-2">クイックテスト（クリックで送信）</p>
+          <div class="flex flex-wrap gap-2">
+            {[
+              'プログラミングに興味があります',
+              '転職を考えています',
+              '迷ってるんですけど...',
+              'いくらかかりますか？',
+              'また今度にします',
+              'やっぱりやめます',
+              '人と話したい',
+              '日程を変更したいです',
+            ].map(msg => (
+              <button class="sim-quick text-xs bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 px-3 py-1.5 rounded-full transition border border-transparent hover:border-indigo-200" data-msg={msg}>{msg}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{__html: `
+(function() {
+  const tenantId = '${id}';
+  let history = [];
+  let hearingData = {};
+  const messagesEl = document.getElementById('sim-messages');
+  const inputEl = document.getElementById('sim-input');
+  const sendBtn = document.getElementById('sim-send');
+  const metaEl = document.getElementById('sim-meta');
+  let sending = false;
+
+  function addBubble(text, isUser) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+    const bubble = document.createElement('div');
+    bubble.className = isUser
+      ? 'max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2 text-sm'
+      : 'max-w-[75%] bg-white border rounded-2xl rounded-tl-sm px-4 py-2 text-sm shadow-sm';
+    bubble.textContent = text;
+    wrapper.appendChild(bubble);
+    messagesEl.appendChild(wrapper);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function addTyping() {
+    const wrapper = document.createElement('div');
+    wrapper.id = 'typing';
+    wrapper.className = 'flex justify-start';
+    wrapper.innerHTML = '<div class="bg-white border rounded-2xl rounded-tl-sm px-4 py-2 text-sm shadow-sm text-gray-400">入力中...</div>';
+    messagesEl.appendChild(wrapper);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('typing');
+    if (el) el.remove();
+  }
+
+  async function send(msg) {
+    if (sending || !msg.trim()) return;
+    sending = true;
+    sendBtn.disabled = true;
+    inputEl.value = '';
+
+    addBubble(msg, true);
+    history.push({ role: 'user', content: msg });
+    addTyping();
+
+    try {
+      const res = await fetch('/admin/api/tenants/' + tenantId + '/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: msg,
+          history: history,
+          config: {
+            user_name: document.getElementById('sim-name').value,
+            current_step: document.getElementById('sim-step').value,
+            status: document.getElementById('sim-status').value,
+            hearing_data: hearingData,
+          }
+        })
+      });
+      const data = await res.json();
+      removeTyping();
+
+      if (data.error) {
+        addBubble('(エラー: ' + data.error + ')', false);
+      } else {
+        addBubble(data.reply, false);
+        history.push({ role: 'assistant', content: data.reply });
+
+        if (data.updated_hearing_data) hearingData = data.updated_hearing_data;
+
+        // Show metadata
+        metaEl.classList.remove('hidden');
+        const extEl = document.getElementById('sim-extracted');
+        const insEl = document.getElementById('sim-insight');
+        const intEl = document.getElementById('sim-intent');
+
+        if (data.extracted_data && Object.keys(data.extracted_data).length > 0) {
+          extEl.classList.remove('hidden');
+          extEl.textContent = '抽出データ: ' + JSON.stringify(data.extracted_data);
+        }
+        if (data.insight) {
+          insEl.classList.remove('hidden');
+          insEl.textContent = 'インサイト: ' + data.insight;
+        }
+        if (data.detected_intent && data.detected_intent !== 'none') {
+          intEl.classList.remove('hidden');
+          intEl.textContent = '検知意図: ' + data.detected_intent;
+        }
+        if (data.is_hearing_complete) {
+          addBubble('--- ヒアリング完了 ---', false);
+        }
+        if (data.escalate_to_human) {
+          addBubble('--- 人間エスカレーション発生 ---', false);
+        }
+      }
+    } catch (e) {
+      removeTyping();
+      addBubble('(通信エラー)', false);
+    }
+    sending = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+
+  sendBtn.addEventListener('click', () => send(inputEl.value));
+  inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) send(inputEl.value); });
+  document.getElementById('sim-reset').addEventListener('click', () => {
+    history = [];
+    hearingData = {};
+    messagesEl.innerHTML = '<div class="text-center text-xs text-gray-400 py-8">メッセージを入力してAIの応答を確認してください</div>';
+    metaEl.classList.add('hidden');
+  });
+  document.querySelectorAll('.sim-quick').forEach(btn => {
+    btn.addEventListener('click', () => send(btn.dataset.msg));
+  });
+})();
+      `}} />
+    </Layout>
+  );
+});
+
+// ========================
+// Live Conversation Feed
+// ========================
+
+dashboard.get('/admin/tenants/:id/live', async (c) => {
+  const id = c.req.param('id');
+  const supabase = getSupabaseClient(c.env);
+  const { data: tenant } = await supabase.from('tenants').select('name').eq('id', id).single();
+  if (!tenant) return c.redirect('/admin/');
+
+  // Get recent conversations grouped by user
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: messages } = await supabase
+    .from('conversations')
+    .select('*, end_users!inner(id, display_name, line_user_id, status, current_step, is_staff_takeover)')
+    .eq('tenant_id', id)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  // Group by user
+  const userMap = new Map<string, { user: Record<string, unknown>; messages: Array<Record<string, unknown>> }>();
+  for (const msg of messages || []) {
+    const eu = msg.end_users as Record<string, unknown>;
+    const uid = eu.id as string;
+    if (!userMap.has(uid)) {
+      userMap.set(uid, { user: eu, messages: [] });
+    }
+    userMap.get(uid)!.messages.push(msg);
+  }
+
+  // Sort by most recent message
+  const sortedUsers = Array.from(userMap.values()).sort((a, b) => {
+    const aTime = new Date(a.messages[0].created_at as string).getTime();
+    const bTime = new Date(b.messages[0].created_at as string).getTime();
+    return bTime - aTime;
+  });
+
+  return c.html(
+    <Layout title={`ライブ会話 - ${tenant.name}`}>
+      <div class="max-w-6xl mx-auto">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <a href={`/admin/tenants/${id}`} class="text-sm text-gray-500 hover:text-gray-700">&larr; {tenant.name}</a>
+            <h1 class="text-2xl font-bold mt-1 flex items-center gap-2">
+              ライブ会話モニター
+              <span class="inline-block w-2 h-2 bg-emerald-500 rounded-full" style="animation: pulse-dot 2s infinite"></span>
+            </h1>
+            <p class="text-sm text-gray-500 mt-1">直近24時間のAI会話をリアルタイムで監視。問題があればワンクリックで介入できます。</p>
+          </div>
+          <a href={`/admin/tenants/${id}/simulator`} class="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 transition">AIシミュレーター</a>
+        </div>
+
+        {sortedUsers.length === 0 ? (
+          <div class="text-center py-16 text-gray-400">
+            <p class="text-lg mb-2">直近24時間の会話はありません</p>
+            <p class="text-sm">新しい会話が始まるとここに表示されます</p>
+          </div>
+        ) : (
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {sortedUsers.map(({ user, messages: msgs }) => {
+              const userName = (user.display_name as string) || '匿名';
+              const userStatus = user.status as string;
+              const isTakeover = user.is_staff_takeover as boolean;
+              const userId = user.id as string;
+              const reversedMsgs = [...msgs].reverse().slice(-8); // Show last 8 messages
+
+              return (
+                <div class={`bg-white rounded-lg shadow-sm border overflow-hidden ${isTakeover ? 'ring-2 ring-amber-400' : ''}`}>
+                  {/* Header */}
+                  <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium text-sm">{userName}</span>
+                      <span class={`text-[10px] px-1.5 py-0.5 rounded ${statusBadgeColor(userStatus)}`}>{statusLabel(userStatus)}</span>
+                      {isTakeover && <span class="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded">スタッフ対応中</span>}
+                    </div>
+                    <div class="flex gap-1">
+                      <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition">詳細</a>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <div class="p-3 space-y-2 bg-slate-50 max-h-64 overflow-y-auto">
+                    {reversedMsgs.map(m => {
+                      const isUser = m.role === 'user';
+                      return (
+                        <div class={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                          <div class={`max-w-[80%] px-3 py-1.5 text-xs rounded-xl ${isUser ? 'bg-indigo-100 text-indigo-900 rounded-tr-sm' : 'bg-white border rounded-tl-sm shadow-sm'}`}>
+                            {m.content as string}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Quick actions */}
+                  <div class="border-t px-3 py-2 bg-white flex items-center gap-2">
+                    <span class="text-[10px] text-gray-400">{timeAgo(msgs[0].created_at as string)}</span>
+                    <div class="flex-1"></div>
+                    <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">会話を見る &rarr;</a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+});
+
+// ========================
+// AI Sessions Dashboard
+// ========================
+
+dashboard.get('/admin/tenants/:id/sessions', async (c) => {
+  const id = c.req.param('id');
+  const supabase = getSupabaseClient(c.env);
+  const { data: tenant } = await supabase.from('tenants').select('name').eq('id', id).single();
+  if (!tenant) return c.html(<Layout title="Not Found"><p>テナントが見つかりません</p></Layout>);
+
+  const status = c.req.query('status') || '';
+
+  let q = supabase
+    .from('ai_sessions')
+    .select('*, end_users!inner(display_name, line_user_id)', { count: 'exact' })
+    .eq('tenant_id', id)
+    .order('started_at', { ascending: false })
+    .limit(50);
+
+  if (status) q = q.eq('status', status);
+
+  const { data: sessions, count } = await q;
+
+  // Get session stats
+  const [
+    { count: activeCount },
+    { count: completedCount },
+    { count: expiredCount },
+    { count: escalatedCount },
+  ] = await Promise.all([
+    supabase.from('ai_sessions').select('*', { count: 'exact', head: true }).eq('tenant_id', id).eq('status', 'active'),
+    supabase.from('ai_sessions').select('*', { count: 'exact', head: true }).eq('tenant_id', id).eq('status', 'completed'),
+    supabase.from('ai_sessions').select('*', { count: 'exact', head: true }).eq('tenant_id', id).eq('status', 'expired'),
+    supabase.from('ai_sessions').select('*', { count: 'exact', head: true }).eq('tenant_id', id).eq('status', 'escalated'),
+  ]);
+
+  // Average turns for completed sessions
+  const { data: turnData } = await supabase
+    .from('ai_sessions')
+    .select('turn_count')
+    .eq('tenant_id', id)
+    .eq('status', 'completed');
+
+  const avgTurns = turnData && turnData.length > 0
+    ? (turnData.reduce((s: number, t: { turn_count: number }) => s + t.turn_count, 0) / turnData.length).toFixed(1)
+    : '0';
+
+  const completionRate = (activeCount || 0) + (completedCount || 0) + (expiredCount || 0) + (escalatedCount || 0) > 0
+    ? Math.round(((completedCount || 0) / ((activeCount || 0) + (completedCount || 0) + (expiredCount || 0) + (escalatedCount || 0))) * 100)
+    : 0;
+
+  const sessionStatusColor = (s: string) => {
+    switch(s) {
+      case 'active': return 'bg-emerald-100 text-emerald-700';
+      case 'completed': return 'bg-blue-100 text-blue-700';
+      case 'expired': return 'bg-gray-100 text-gray-600';
+      case 'escalated': return 'bg-red-100 text-red-700';
+      default: return 'bg-gray-100 text-gray-600';
+    }
+  };
+
+  return c.html(
+    <Layout title={`AIセッション - ${tenant.name}`}>
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold">AIセッション</h1>
+        <a href={`/admin/tenants/${id}`} class="text-sm text-indigo-600 hover:text-indigo-800">&larr; テナントに戻る</a>
+      </div>
+
+      {/* Stats */}
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="bg-white p-4 rounded shadow text-center">
+          <p class="text-2xl font-bold text-emerald-600">{activeCount || 0}</p>
+          <p class="text-xs text-gray-500">アクティブ</p>
+        </div>
+        <div class="bg-white p-4 rounded shadow text-center">
+          <p class="text-2xl font-bold text-blue-600">{completedCount || 0}</p>
+          <p class="text-xs text-gray-500">完了</p>
+        </div>
+        <div class="bg-white p-4 rounded shadow text-center">
+          <p class="text-2xl font-bold text-gray-500">{expiredCount || 0}</p>
+          <p class="text-xs text-gray-500">期限切れ</p>
+        </div>
+        <div class="bg-white p-4 rounded shadow text-center">
+          <p class="text-2xl font-bold text-red-600">{escalatedCount || 0}</p>
+          <p class="text-xs text-gray-500">エスカレ</p>
+        </div>
+        <div class="bg-white p-4 rounded shadow text-center">
+          <p class="text-2xl font-bold">{completionRate}%</p>
+          <p class="text-xs text-gray-500">完了率 / 平均{avgTurns}ターン</p>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <div class="flex gap-2 mb-4">
+        <a href={`/admin/tenants/${id}/sessions`} class={`px-3 py-1 rounded text-sm ${!status ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>全て</a>
+        <a href={`/admin/tenants/${id}/sessions?status=active`} class={`px-3 py-1 rounded text-sm ${status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-100'}`}>アクティブ</a>
+        <a href={`/admin/tenants/${id}/sessions?status=completed`} class={`px-3 py-1 rounded text-sm ${status === 'completed' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>完了</a>
+        <a href={`/admin/tenants/${id}/sessions?status=escalated`} class={`px-3 py-1 rounded text-sm ${status === 'escalated' ? 'bg-red-600 text-white' : 'bg-gray-100'}`}>エスカレ</a>
+      </div>
+
+      {/* Sessions List */}
+      <div class="bg-white rounded shadow overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-left">
+            <tr>
+              <th class="px-4 py-3 font-medium">ユーザー</th>
+              <th class="px-4 py-3 font-medium">タイプ</th>
+              <th class="px-4 py-3 font-medium">ステータス</th>
+              <th class="px-4 py-3 font-medium">フェーズ</th>
+              <th class="px-4 py-3 font-medium">ターン数</th>
+              <th class="px-4 py-3 font-medium">開始</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(sessions || []).map((s: Record<string, unknown>) => {
+              const eu = s.end_users as unknown as { display_name: string | null; line_user_id: string };
+              return (
+                <tr class="border-t hover:bg-gray-50">
+                  <td class="px-4 py-3">
+                    <a href={`/admin/tenants/${id}/users/${s.end_user_id}`} class="text-indigo-600 hover:text-indigo-800">
+                      {eu?.display_name || eu?.line_user_id || '(不明)'}
+                    </a>
+                  </td>
+                  <td class="px-4 py-3">{s.session_type as string}</td>
+                  <td class="px-4 py-3">
+                    <span class={`px-2 py-0.5 rounded text-xs ${sessionStatusColor(s.status as string)}`}>
+                      {s.status as string}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-gray-500">{(s.phase as string) || '-'}</td>
+                  <td class="px-4 py-3">{s.turn_count as number}</td>
+                  <td class="px-4 py-3 text-gray-500 text-xs">{formatDateTimeJST(s.started_at as string)}</td>
+                </tr>
+              );
+            })}
+            {(!sessions || sessions.length === 0) && (
+              <tr><td colspan={6} class="px-4 py-8 text-center text-gray-400">セッションがありません</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-gray-400 mt-2">合計: {count || 0}件</p>
+    </Layout>
+  );
+});
+
+function statusBadgeColor(status: string): string {
+  switch (status) {
+    case 'active': return 'bg-emerald-500/20 text-emerald-300';
+    case 'booked': return 'bg-blue-500/20 text-blue-300';
+    case 'consulted': return 'bg-purple-500/20 text-purple-300';
+    case 'enrolled': return 'bg-amber-500/20 text-amber-300';
+    case 'stalled': return 'bg-red-500/20 text-red-300';
+    default: return 'bg-gray-500/20 text-gray-300';
   }
 }
 

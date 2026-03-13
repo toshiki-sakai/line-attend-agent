@@ -7,6 +7,7 @@ import { pushMessage } from './line';
 import { validateMessage } from '../guards/ai-guardrails';
 import { notifyStaff } from './notification';
 import { cancelPendingActions } from '../utils/scheduled-actions';
+import { SessionManager } from './session-manager';
 import { logger } from '../utils/logger';
 
 const NO_SHOW_THRESHOLD_MINUTES = 30;
@@ -20,6 +21,7 @@ export async function handleScheduled(
     processScheduledActions(env),
     detectNoShows(env),
     detectStaleConversations(env),
+    cleanupExpiredSessions(env),
   ]);
 }
 
@@ -258,4 +260,19 @@ async function generateNoShowMessage(tenant: Tenant, endUser: EndUser, env: Env)
 
   // Fallback template
   return `${name}さん、今日はご都合が合わなかったでしょうか？\nまた別の日程でお気軽にお選びくださいね😊`;
+}
+
+/**
+ * Cleanup expired AI sessions.
+ */
+async function cleanupExpiredSessions(env: Env): Promise<void> {
+  try {
+    const sessionManager = new SessionManager(env);
+    const cleaned = await sessionManager.cleanupExpiredSessions();
+    if (cleaned > 0) {
+      logger.info('Cleaned up expired AI sessions', { count: cleaned });
+    }
+  } catch (error) {
+    logger.error('Session cleanup failed', { error: String(error) });
+  }
 }

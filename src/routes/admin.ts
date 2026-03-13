@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
-import type { Env } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, ConversationMessage } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { invalidateTenantCache } from '../config/tenant-config';
 import { createTenantSchema, updateTenantSchema, createSlotSchema, paginationSchema } from '../utils/admin-validators';
@@ -9,7 +9,10 @@ import { getFunnelMetrics, getAllFunnelMetrics, getDetailedAnalytics } from '../
 import { verifySessionToken } from '../middleware/security';
 import { getDefaultConfigs } from '../config/default-scenarios';
 import { schedulePostConsultationActions } from '../services/action-executors';
-import type { Tenant, EndUser } from '../types';
+import { generateHearingResponse, handleUnexpectedInput } from '../services/ai';
+import { buildSystemPrompt } from '../prompts/system-base';
+import { buildHearingPrompt } from '../prompts/hearing';
+import { generateApiKey } from '../middleware/api-auth';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -542,6 +545,222 @@ admin.delete('/admin/api/tenants/:id/slots/:slotId', async (c) => {
 
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ message: 'Slot deactivated' });
+});
+
+// ========================
+// Conversation Simulator
+// ========================
+
+admin.post('/admin/api/tenants/:id/simulate', async (c) => {
+  const tenantId = c.req.param('id');
+  const supabase = getSupabaseClient(c.env);
+
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('*')
+    .eq('id', tenantId)
+    .single();
+
+  if (!tenant) return c.json({ error: 'Tenant not found' }, 404);
+
+  const body = await c.req.json();
+  const userMessage = body.message as string;
+  const history = (body.history || []) as ConversationMessage[];
+  const simulatorConfig = body.config || {};
+
+  if (!userMessage || typeof userMessage !== 'string') {
+    return c.json({ error: 'Message is required' }, 400);
+  }
+
+  // Build a mock EndUser based on simulator settings
+  const mockEndUser: EndUser = {
+    id: 'simulator',
+    tenant_id: tenantId,
+    line_user_id: 'simulator',
+    display_name: (simulatorConfig.user_name as string) || 'テストユーザー',
+    current_step: (simulatorConfig.current_step as string) || 'hearing_start',
+    status: (simulatorConfig.status as string) || 'active',
+    hearing_data: (simulatorConfig.hearing_data as Record<string, string>) || {},
+    insight_summary: null,
+    follow_up_count: 0,
+    last_message_at: new Date().toISOString(),
+    last_response_at: new Date().toISOString(),
+    source: null,
+    is_blocked: false,
+    is_staff_takeover: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const t = tenant as unknown as Tenant;
+  const step = t.scenario_config?.steps?.find((s) => s.id === mockEndUser.current_step) || {
+    id: mockEndUser.current_step,
+    type: 'ai' as const,
+    trigger: 'auto' as const,
+    delay_minutes: 0,
+    ai_config: { purpose: 'hearing' as const, max_turns: 8, completion_condition: 'all_required' },
+    next_step: '',
+  };
+
+  const context: FlowContext = {
+    tenant: t,
+    endUser: mockEndUser,
+    currentStep: step,
+    hearingData: mockEndUser.hearing_data,
+    conversationHistory: history,
+    env: c.env,
+  };
+
+  try {
+    let response;
+    if (step.ai_config?.purpose === 'hearing') {
+      response = await generateHearingResponse(context, userMessage);
+    } else {
+      response = await handleUnexpectedInput(context, userMessage);
+    }
+
+    // Update mock hearing data for next turn
+    const updatedHearingData = { ...mockEndUser.hearing_data, ...(response.extracted_data || {}) };
+
+    return c.json({
+      reply: response.reply_message,
+      extracted_data: response.extracted_data || {},
+      insight: response.insight || null,
+      is_hearing_complete: response.is_hearing_complete || false,
+      escalate_to_human: response.escalate_to_human || false,
+      detected_intent: response.detected_intent || null,
+      updated_hearing_data: updatedHearingData,
+    });
+  } catch (error) {
+    return c.json({ error: 'AI generation failed', detail: String(error) }, 500);
+  }
+});
+
+// ========================
+// API Key Management
+// ========================
+
+// Generate API key for a tenant (for Lステップ integration)
+admin.post('/admin/api/tenants/:id/api-key', async (c) => {
+  const id = c.req.param('id');
+  if (!uuidSchema.safeParse(id).success) return c.json({ error: 'Invalid ID' }, 400);
+
+  const { apiKey, hash, prefix } = generateApiKey();
+
+  const supabase = getSupabaseClient(c.env);
+  const { error } = await supabase
+    .from('tenants')
+    .update({
+      api_key_hash: hash,
+      api_key_prefix: prefix,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) return c.json({ error: error.message }, 500);
+  await invalidateTenantCache(id, c.env);
+
+  // Return the key only once — it cannot be retrieved again
+  return c.json({
+    api_key: apiKey,
+    prefix,
+    message: 'APIキーは一度しか表示されません。安全な場所に保存してください。',
+  });
+});
+
+// ========================
+// AI Session Management
+// ========================
+
+// List AI sessions for a tenant
+admin.get('/admin/api/tenants/:id/sessions', async (c) => {
+  const id = c.req.param('id');
+  if (!uuidSchema.safeParse(id).success) return c.json({ error: 'Invalid ID' }, 400);
+
+  const query = paginationSchema.safeParse({
+    page: c.req.query('page'),
+    limit: c.req.query('limit'),
+  });
+  const { page, limit } = query.success ? query.data : { page: 1, limit: 20 };
+  const offset = (page - 1) * limit;
+  const status = c.req.query('status');
+
+  const supabase = getSupabaseClient(c.env);
+  let q = supabase
+    .from('ai_sessions')
+    .select('*, end_users!inner(display_name, line_user_id)', { count: 'exact' })
+    .eq('tenant_id', id)
+    .order('started_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (status) q = q.eq('status', status);
+
+  const { data, error, count } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ data: data || [], total: count || 0, page, limit });
+});
+
+// API usage stats
+admin.get('/admin/api/tenants/:id/api-usage', async (c) => {
+  const id = c.req.param('id');
+  if (!uuidSchema.safeParse(id).success) return c.json({ error: 'Invalid ID' }, 400);
+
+  const supabase = getSupabaseClient(c.env);
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    { count: calls24h },
+    { count: calls7d },
+    { count: errors24h },
+    { data: endpointBreakdown },
+  ] = await Promise.all([
+    supabase.from('api_usage_log').select('*', { count: 'exact', head: true }).eq('tenant_id', id).gte('created_at', oneDayAgo),
+    supabase.from('api_usage_log').select('*', { count: 'exact', head: true }).eq('tenant_id', id).gte('created_at', sevenDaysAgo),
+    supabase.from('api_usage_log').select('*', { count: 'exact', head: true }).eq('tenant_id', id).gte('created_at', oneDayAgo).gte('status_code', 400),
+    supabase.from('api_usage_log').select('endpoint, latency_ms').eq('tenant_id', id).gte('created_at', oneDayAgo),
+  ]);
+
+  // Calculate per-endpoint stats
+  const endpointStats: Record<string, { count: number; avg_latency: number }> = {};
+  for (const row of endpointBreakdown || []) {
+    if (!endpointStats[row.endpoint]) {
+      endpointStats[row.endpoint] = { count: 0, avg_latency: 0 };
+    }
+    endpointStats[row.endpoint].count++;
+    endpointStats[row.endpoint].avg_latency += row.latency_ms || 0;
+  }
+  for (const ep of Object.keys(endpointStats)) {
+    endpointStats[ep].avg_latency = Math.round(endpointStats[ep].avg_latency / endpointStats[ep].count);
+  }
+
+  return c.json({
+    calls_24h: calls24h || 0,
+    calls_7d: calls7d || 0,
+    errors_24h: errors24h || 0,
+    error_rate_24h: calls24h ? Math.round(((errors24h || 0) / calls24h) * 100) : 0,
+    endpoints: endpointStats,
+  });
+});
+
+// ========================
+// Live Conversation Feed
+// ========================
+
+admin.get('/admin/api/tenants/:id/conversations/live', async (c) => {
+  const tenantId = c.req.param('id');
+  const supabase = getSupabaseClient(c.env);
+  const since = c.req.query('since') || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: messages } = await supabase
+    .from('conversations')
+    .select('*, end_users!inner(display_name, line_user_id, status, current_step)')
+    .eq('tenant_id', tenantId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  return c.json({ data: messages || [] });
 });
 
 export default admin;

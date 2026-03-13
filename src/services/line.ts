@@ -5,7 +5,8 @@ import { logger } from '../utils/logger';
 const LINE_API_BASE = 'https://api.line.me/v2/bot';
 const LINE_API_TIMEOUT_MS = 10000;
 
-export function verifySignature(body: string, signature: string, channelSecret: string): boolean {
+export function verifySignature(body: string, signature: string, channelSecret: string | null): boolean {
+  if (!channelSecret) return false;
   const hmac = createHmac('SHA256', channelSecret);
   hmac.update(body);
   const expected = hmac.digest();
@@ -19,6 +20,10 @@ export async function pushMessage(
   userId: string,
   text: string
 ): Promise<void> {
+  if (!tenant.line_channel_access_token) {
+    logger.warn('Cannot push message: no LINE access token configured (API-only tenant)', { tenantId: tenant.id });
+    return;
+  }
   await pushMessages(tenant, userId, [{ type: 'text', text }]);
 }
 
@@ -28,6 +33,10 @@ export async function pushFlexMessage(
   flex: unknown,
   altText: string
 ): Promise<void> {
+  if (!tenant.line_channel_access_token) {
+    logger.warn('Cannot push flex message: no LINE access token configured (API-only tenant)', { tenantId: tenant.id });
+    return;
+  }
   await pushMessages(tenant, userId, [{ type: 'flex', altText, contents: flex }]);
 }
 
@@ -61,6 +70,8 @@ export async function getProfile(
   tenant: Tenant,
   userId: string
 ): Promise<{ displayName: string; userId: string } | null> {
+  if (!tenant.line_channel_access_token) return null;
+
   try {
     const response = await fetch(`${LINE_API_BASE}/profile/${userId}`, {
       headers: {

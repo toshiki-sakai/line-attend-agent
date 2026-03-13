@@ -25,9 +25,13 @@ export interface LineWebhookEvent {
 export interface Tenant {
   id: string;
   name: string;
-  line_channel_id: string;
-  line_channel_secret: string;
-  line_channel_access_token: string;
+  /** LINE channel credentials — optional for API-only (Lステップ) tenants */
+  line_channel_id: string | null;
+  line_channel_secret: string | null;
+  line_channel_access_token: string | null;
+  /** API key for Lステップ integration */
+  api_key_hash?: string | null;
+  api_key_prefix?: string | null;
   scenario_config: ScenarioConfig;
   hearing_config: HearingConfig;
   reminder_config: ReminderConfig;
@@ -146,6 +150,8 @@ export interface EndUser {
   source: string | null;
   is_blocked: boolean;
   is_staff_takeover: boolean;
+  /** AI session state: idle, hearing, follow_up, nurture, escalated */
+  ai_session_state?: string;
   created_at: string;
   updated_at: string;
 }

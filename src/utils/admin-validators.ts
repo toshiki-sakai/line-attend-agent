@@ -4,9 +4,10 @@ const jsonObject = z.record(z.string(), z.unknown());
 
 export const createTenantSchema = z.object({
   name: z.string().min(1).max(100),
-  line_channel_id: z.string().min(1),
-  line_channel_secret: z.string().min(1),
-  line_channel_access_token: z.string().min(1),
+  /** LINE credentials are optional for API-only (Lステップ) tenants */
+  line_channel_id: z.string().min(1).optional().nullable(),
+  line_channel_secret: z.string().min(1).optional().nullable(),
+  line_channel_access_token: z.string().min(1).optional().nullable(),
   school_context: z.string().optional().default(''),
   scenario_config: jsonObject.optional().default({}),
   hearing_config: jsonObject.optional().default({}),
