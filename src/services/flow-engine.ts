@@ -1,15 +1,14 @@
-import type { Env, Tenant, EndUser, FlowContext, ScenarioStep } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, ScenarioStep, AIResponse, ConversationMessage } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
-import { sendTextMessage, sendPushMessage } from './line';
-import {
-  generateHearingResponse,
-  generateFollowUpResponse,
-  generatePostConsultationResponse,
-  handleUnexpectedInput,
-} from './ai';
-import { validateMessage } from '../guards/ai-guardrails';
+import { pushMessage, pushFlexMessage } from './line';
+import { generateHearingResponse, handleUnexpectedInput, getConversationHistory } from './ai';
+import { validateMessage, validateWithRetry } from '../guards/ai-guardrails';
 import { getAvailableSlots, buildBookingFlexMessage } from './booking';
+import { notifyStaff } from './notification';
+import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
+
+const NON_TEXT_REPLY = 'ありがとうございます！テキストでお返事いただけると嬉しいです😊';
 
 export class FlowEngine {
   private env: Env;
@@ -18,244 +17,293 @@ export class FlowEngine {
     this.env = env;
   }
 
-  async handleUserMessage(context: FlowContext, userMessage: string): Promise<void> {
-    const step = context.currentStep;
+  async handleUserMessage(context: FlowContext, userMessage: string, messageType: string): Promise<void> {
+    if (context.endUser.is_blocked) return;
 
-    // 会話ログ保存（ユーザーメッセージ）
+    // 非テキストメッセージ対応
+    if (messageType !== 'text') {
+      if (context.currentStep.type === 'ai') {
+        await pushMessage(context.tenant, context.endUser.line_user_id, NON_TEXT_REPLY);
+      }
+      return;
+    }
+
     await this.saveConversation(context, 'user', userMessage);
+    await this.updateLastResponseAt(context.endUser.id);
 
-    // last_response_at更新
-    const supabase = getSupabaseClient(this.env);
-    await supabase
-      .from('end_users')
-      .update({
-        last_response_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', context.endUser.id);
-
-    if (step.type === 'ai') {
+    if (context.currentStep.type === 'ai') {
       await this.handleAIStep(context, userMessage);
     } else {
-      // テンプレートステップでの想定外入力
-      const response = await handleUnexpectedInput(context, userMessage, this.env);
-      const guardrailResult = validateMessage(response, context.tenant);
-
-      if (guardrailResult.passed) {
-        await sendTextMessage(context.tenant, context.endUser.line_user_id, response);
-        await this.saveConversation(context, 'assistant', response);
-      } else {
-        const fallback = 'ご質問ありがとうございます！詳しくは相談会でお話しさせていただきますね😊';
-        await sendTextMessage(context.tenant, context.endUser.line_user_id, fallback);
-        await this.saveConversation(context, 'assistant', fallback);
-        logger.warn('Guardrail violation on unexpected input', {
-          violations: guardrailResult.violations,
-        });
-      }
+      await this.handleTemplateStepInput(context, userMessage);
     }
   }
 
   private async handleAIStep(context: FlowContext, userMessage: string): Promise<void> {
-    const step = context.currentStep;
-    const purpose = step.ai_config?.purpose;
+    const purpose = context.currentStep.ai_config?.purpose;
 
     if (purpose === 'hearing') {
-      const hearingResponse = await generateHearingResponse(context, userMessage, this.env);
+      const aiResponse = await generateHearingResponse(context, userMessage);
+      await this.processAIResponse(context, aiResponse);
 
-      // ガードレールチェック
-      const guardrailResult = validateMessage(hearingResponse.reply_message, context.tenant);
-      let messageToSend = hearingResponse.reply_message;
-
-      if (!guardrailResult.passed) {
-        messageToSend = 'もう少し詳しく教えていただけますか？😊';
-        logger.warn('Guardrail violation in hearing response', {
-          violations: guardrailResult.violations,
-        });
+      if (aiResponse.extracted_data && Object.keys(aiResponse.extracted_data).length > 0) {
+        await this.updateHearingData(context, aiResponse);
       }
 
-      await sendTextMessage(context.tenant, context.endUser.line_user_id, messageToSend);
-      await this.saveConversation(context, 'assistant', messageToSend);
-
-      // ヒアリングデータ更新
-      if (Object.keys(hearingResponse.extracted_data).length > 0) {
-        const updatedHearingData = {
-          ...context.endUser.hearing_data,
-          ...hearingResponse.extracted_data,
-        };
-        const supabase = getSupabaseClient(this.env);
-        await supabase
-          .from('end_users')
-          .update({
-            hearing_data: updatedHearingData,
-            insight_summary: hearingResponse.insight || context.endUser.insight_summary,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', context.endUser.id);
-
-        context.endUser.hearing_data = updatedHearingData;
-      }
-
-      // ヒアリング完了判定
-      if (hearingResponse.is_hearing_complete) {
+      if (aiResponse.is_hearing_complete) {
         await this.advanceStep(context);
       }
     } else {
-      // follow_up / post_consultation 等
-      const response = await handleUnexpectedInput(context, userMessage, this.env);
-      const guardrailResult = validateMessage(response, context.tenant);
-
-      if (guardrailResult.passed) {
-        await sendTextMessage(context.tenant, context.endUser.line_user_id, response);
-        await this.saveConversation(context, 'assistant', response);
-      } else {
-        const fallback = 'ご質問ありがとうございます！詳しくは相談会でお話しさせていただきますね😊';
-        await sendTextMessage(context.tenant, context.endUser.line_user_id, fallback);
-        await this.saveConversation(context, 'assistant', fallback);
-      }
+      const aiResponse = await handleUnexpectedInput(context, userMessage);
+      await this.processAIResponse(context, aiResponse);
     }
+  }
+
+  private async handleTemplateStepInput(context: FlowContext, userMessage: string): Promise<void> {
+    const aiResponse = await handleUnexpectedInput(context, userMessage);
+    await this.processAIResponse(context, aiResponse);
+  }
+
+  private async processAIResponse(context: FlowContext, aiResponse: AIResponse): Promise<void> {
+    if (aiResponse.escalate_to_human) {
+      await this.escalateToHuman(context, 'AI判断によるエスカレーション');
+      return;
+    }
+
+    const validated = await validateWithRetry(
+      aiResponse.reply_message,
+      context.tenant,
+      context,
+      async () => handleUnexpectedInput(context, '（再生成してください）')
+    );
+
+    if (!validated.passed) {
+      await this.escalateToHuman(context, 'ガードレール違反が解消されない');
+      return;
+    }
+
+    await pushMessage(context.tenant, context.endUser.line_user_id, validated.message);
+    await this.saveConversation(context, 'assistant', validated.message, aiResponse);
   }
 
   async advanceStep(context: FlowContext): Promise<void> {
     const nextStepId = context.currentStep.next_step;
     if (!nextStepId) return;
 
-    const steps = context.tenant.scenario_config?.steps || [];
-    const nextStep = steps.find((s) => s.id === nextStepId);
+    const nextStep = this.getStepById(context.tenant, nextStepId);
     if (!nextStep) {
       logger.warn('Next step not found', { nextStepId });
       return;
     }
 
-    // DBのcurrent_stepを更新
-    const supabase = getSupabaseClient(this.env);
-    await supabase
-      .from('end_users')
-      .update({ current_step: nextStepId, updated_at: new Date().toISOString() })
-      .eq('id', context.endUser.id);
+    await this.updateCurrentStep(context.endUser.id, nextStepId);
 
-    // 次のステップがautoトリガーでdelay_minutes=0なら即実行
     if (nextStep.trigger === 'auto' && nextStep.delay_minutes === 0) {
-      await this.executeStep(context.tenant, context.endUser, nextStep);
+      await this.executeStep(context.tenant, context.endUser, nextStep, context.env);
     } else if (nextStep.trigger === 'auto' && nextStep.delay_minutes > 0) {
-      // delay_minutes > 0 の場合はスケジュール登録
-      const scheduledAt = new Date(Date.now() + nextStep.delay_minutes * 60 * 1000);
-      await supabase.from('end_users').update({
-        last_message_at: scheduledAt.toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq('id', context.endUser.id);
+      await this.scheduleAction({
+        tenant_id: context.tenant.id,
+        end_user_id: context.endUser.id,
+        action_type: 'scenario_step',
+        action_payload: { step_id: nextStep.id },
+        execute_at: new Date(Date.now() + nextStep.delay_minutes * 60 * 1000).toISOString(),
+      });
     }
   }
 
-  async executeStep(tenant: Tenant, endUser: EndUser, step: ScenarioStep): Promise<void> {
+  async executeStep(tenant: Tenant, endUser: EndUser, step: ScenarioStep, env: Env): Promise<void> {
     if (step.type === 'template') {
-      await this.executeTemplateStep(tenant, endUser, step);
+      await this.executeTemplateStep(tenant, endUser, step, env);
     } else if (step.type === 'ai') {
-      // AIステップの開始メッセージ（最初のターン）
-      const context: FlowContext = {
-        tenant,
-        endUser,
-        currentStep: step,
-        hearingData: endUser.hearing_data,
-      };
-
-      if (step.ai_config?.purpose === 'hearing') {
-        const hearingResponse = await generateHearingResponse(
-          context,
-          '（システム: ヒアリングを開始してください）',
-          this.env
-        );
-        const guardrailResult = validateMessage(hearingResponse.reply_message, tenant);
-        const message = guardrailResult.passed
-          ? hearingResponse.reply_message
-          : 'こんにちは！少しお話を聞かせていただけますか？😊';
-
-        await sendTextMessage(tenant, endUser.line_user_id, message);
-        await this.saveConversation(context, 'assistant', message);
-      }
+      await this.executeAIStep(tenant, endUser, step, env);
     }
   }
 
-  private async executeTemplateStep(
-    tenant: Tenant,
-    endUser: EndUser,
-    step: ScenarioStep
-  ): Promise<void> {
-    if (!step.message) return;
+  private async executeAIStep(tenant: Tenant, endUser: EndUser, step: ScenarioStep, env: Env): Promise<void> {
+    if (step.ai_config?.purpose !== 'hearing') return;
 
-    const content = step.message.content;
-
-    // 特殊キーワード処理
-    if (content === 'BOOKING_SELECTOR') {
-      const slots = await getAvailableSlots(tenant.id, this.env);
-      if (slots.length > 0) {
-        const flexMessage = buildBookingFlexMessage(slots);
-        await sendPushMessage(tenant, endUser.line_user_id, [flexMessage]);
-      } else {
-        await sendTextMessage(
-          tenant,
-          endUser.line_user_id,
-          '現在予約可能な日程を準備中です。もう少しお待ちください😊'
-        );
-      }
-      return;
-    }
-
-    // テンプレート変数の置換
-    const processedContent = this.replaceTemplateVariables(content, endUser);
-
-    if (step.message.type === 'text') {
-      await sendTextMessage(tenant, endUser.line_user_id, processedContent);
-    } else if (step.message.type === 'flex') {
-      try {
-        const flexContent = JSON.parse(processedContent);
-        await sendPushMessage(tenant, endUser.line_user_id, [
-          { type: 'flex', altText: 'お知らせ', contents: flexContent },
-        ]);
-      } catch {
-        // Flex Messageのパースに失敗した場合はテキストで送信
-        await sendTextMessage(tenant, endUser.line_user_id, processedContent);
-      }
-    }
-
-    // 会話ログ保存
+    const history = await getConversationHistory(endUser.id, tenant.id, env);
     const context: FlowContext = {
       tenant,
       endUser,
       currentStep: step,
       hearingData: endUser.hearing_data,
+      conversationHistory: history,
+      env,
     };
-    await this.saveConversation(context, 'assistant', processedContent);
 
-    // 次のステップに自動進行
+    const aiResponse = await generateHearingResponse(context, '（システム: ヒアリングを開始してください）');
+    const guardrailResult = validateMessage(aiResponse.reply_message, tenant);
+    const message = guardrailResult.passed
+      ? aiResponse.reply_message
+      : 'こんにちは！少しお話を聞かせていただけますか？😊';
+
+    await pushMessage(tenant, endUser.line_user_id, message);
+    await this.saveConversation(context, 'assistant', message, aiResponse);
+  }
+
+  private async executeTemplateStep(
+    tenant: Tenant,
+    endUser: EndUser,
+    step: ScenarioStep,
+    env: Env
+  ): Promise<void> {
+    if (!step.message) return;
+
+    const content = step.message.content;
+
+    if (content === 'BOOKING_SELECTOR') {
+      await this.sendBookingSelector(tenant, endUser);
+      return;
+    }
+
+    const processedContent = this.replaceTemplateVariables(content, endUser);
+
+    if (step.message.type === 'flex') {
+      try {
+        const flexContent = JSON.parse(processedContent);
+        await pushFlexMessage(tenant, endUser.line_user_id, flexContent, 'お知らせ');
+      } catch {
+        await pushMessage(tenant, endUser.line_user_id, processedContent);
+      }
+    } else {
+      await pushMessage(tenant, endUser.line_user_id, processedContent);
+    }
+
+    const dummyContext: FlowContext = {
+      tenant,
+      endUser,
+      currentStep: step,
+      hearingData: endUser.hearing_data,
+      conversationHistory: [],
+      env,
+    };
+    await this.saveConversation(dummyContext, 'assistant', processedContent);
+
     if (step.next_step) {
-      const nextStep = tenant.scenario_config?.steps?.find((s) => s.id === step.next_step);
-      if (nextStep && nextStep.trigger === 'auto' && nextStep.delay_minutes === 0) {
-        const supabase = getSupabaseClient(this.env);
-        await supabase
-          .from('end_users')
-          .update({ current_step: step.next_step, updated_at: new Date().toISOString() })
-          .eq('id', endUser.id);
-        await this.executeStep(tenant, endUser, nextStep);
-      } else if (nextStep) {
-        const supabase = getSupabaseClient(this.env);
-        await supabase
-          .from('end_users')
-          .update({ current_step: step.next_step, updated_at: new Date().toISOString() })
-          .eq('id', endUser.id);
+      const nextStep = this.getStepById(tenant, step.next_step);
+      if (!nextStep) return;
+
+      await this.updateCurrentStep(endUser.id, step.next_step);
+
+      if (nextStep.trigger === 'auto' && nextStep.delay_minutes === 0) {
+        await this.executeStep(tenant, endUser, nextStep, env);
+      } else if (nextStep.trigger === 'auto' && nextStep.delay_minutes > 0) {
+        await this.scheduleAction({
+          tenant_id: tenant.id,
+          end_user_id: endUser.id,
+          action_type: 'scenario_step',
+          action_payload: { step_id: nextStep.id },
+          execute_at: new Date(Date.now() + nextStep.delay_minutes * 60 * 1000).toISOString(),
+        });
       }
     }
   }
 
+  private async sendBookingSelector(tenant: Tenant, endUser: EndUser): Promise<void> {
+    const slots = await getAvailableSlots(tenant.id, this.env);
+    if (slots.length > 0) {
+      const flexContent = buildBookingFlexMessage(slots);
+      await pushFlexMessage(tenant, endUser.line_user_id, flexContent, '日程を選択してください');
+    } else {
+      await pushMessage(
+        tenant,
+        endUser.line_user_id,
+        '現在予約可能な日程を準備中です。もう少しお待ちください😊'
+      );
+    }
+  }
+
+  async escalateToHuman(context: FlowContext, reason: string): Promise<void> {
+    await pushMessage(
+      context.tenant,
+      context.endUser.line_user_id,
+      '担当スタッフにおつなぎしますね。少々お待ちください😊'
+    );
+    await this.updateStatus(context.endUser.id, 'stalled');
+    await notifyStaff(context.tenant, {
+      type: 'human_handoff',
+      endUser: context.endUser,
+      reason,
+    });
+    await this.cancelPendingActions(context.endUser.id);
+  }
+
+  // --- Helper methods ---
+
+  private getStepById(tenant: Tenant, stepId: string): ScenarioStep | undefined {
+    return tenant.scenario_config?.steps?.find((s) => s.id === stepId);
+  }
+
   private replaceTemplateVariables(content: string, endUser: EndUser): string {
-    let result = content;
-    result = result.replace(/{display_name}/g, endUser.display_name || 'ゲスト');
-    return result;
+    return content.replace(/{display_name}/g, endUser.display_name || 'ゲスト');
+  }
+
+  private async updateCurrentStep(endUserId: string, stepId: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({ current_step: stepId, updated_at: new Date().toISOString() })
+      .eq('id', endUserId);
+  }
+
+  private async updateStatus(endUserId: string, status: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', endUserId);
+  }
+
+  private async updateLastResponseAt(endUserId: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({ last_response_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', endUserId);
+  }
+
+  private async updateHearingData(context: FlowContext, aiResponse: AIResponse): Promise<void> {
+    const updatedData = { ...context.endUser.hearing_data, ...aiResponse.extracted_data };
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({
+        hearing_data: updatedData,
+        insight_summary: aiResponse.insight || context.endUser.insight_summary,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', context.endUser.id);
+    context.endUser.hearing_data = updatedData;
+  }
+
+  async scheduleAction(action: {
+    tenant_id: string;
+    end_user_id: string;
+    action_type: string;
+    action_payload: Record<string, unknown>;
+    execute_at: string;
+  }): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase.from('scheduled_actions').insert({
+      ...action,
+      status: 'pending',
+    });
+  }
+
+  private async cancelPendingActions(endUserId: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('scheduled_actions')
+      .update({ status: 'cancelled' })
+      .eq('end_user_id', endUserId)
+      .eq('status', 'pending');
   }
 
   private async saveConversation(
     context: FlowContext,
     role: 'user' | 'assistant' | 'system',
-    content: string
+    content: string,
+    aiMetadata?: AIResponse
   ): Promise<void> {
     const supabase = getSupabaseClient(this.env);
     await supabase.from('conversations').insert({
@@ -264,6 +312,7 @@ export class FlowEngine {
       role,
       content,
       step_at_time: context.currentStep.id,
+      ai_metadata: aiMetadata ? { extracted_data: aiMetadata.extracted_data, insight: aiMetadata.insight } : null,
     });
   }
 }

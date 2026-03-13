@@ -4,31 +4,21 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   ANTHROPIC_API_KEY: string;
-  DEFAULT_LINE_CHANNEL_SECRET: string;
-  DEFAULT_LINE_CHANNEL_ACCESS_TOKEN: string;
 }
 
 export interface QueuePayload {
   tenantId: string;
   events: LineWebhookEvent[];
+  receivedAt: string;
 }
 
 export interface LineWebhookEvent {
-  type: string;
-  replyToken?: string;
-  source: {
-    type: string;
-    userId: string;
-  };
-  message?: {
-    type: string;
-    id: string;
-    text?: string;
-  };
-  postback?: {
-    data: string;
-  };
+  type: 'follow' | 'unfollow' | 'message' | 'postback';
   timestamp: number;
+  source: { userId: string; type: string };
+  replyToken?: string;
+  message?: { type: string; text?: string; id: string };
+  postback?: { data: string };
 }
 
 export interface Tenant {
@@ -42,6 +32,7 @@ export interface Tenant {
   reminder_config: ReminderConfig;
   tone_config: ToneConfig;
   guardrail_config: GuardrailConfig;
+  notification_config: NotificationConfig;
   school_context: string;
   is_active: boolean;
   created_at: string;
@@ -113,6 +104,12 @@ export interface GuardrailConfig {
   human_handoff_trigger: string;
 }
 
+export interface NotificationConfig {
+  method: 'line' | 'email';
+  staff_line_user_ids: string[];
+  notify_on: string[];
+}
+
 export interface PostConsultationConfig {
   actions: PostConsultationAction[];
 }
@@ -145,6 +142,7 @@ export interface EndUser {
   last_message_at: string | null;
   last_response_at: string | null;
   source: string | null;
+  is_blocked: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -169,8 +167,25 @@ export interface AvailableSlot {
   end_at: string;
   max_bookings: number;
   current_bookings: number;
+  version: number;
   is_active: boolean;
   created_at: string;
+}
+
+export interface ScheduledAction {
+  id: string;
+  tenant_id: string;
+  end_user_id: string;
+  action_type: 'scenario_step' | 'reminder' | 'follow_up' | 'post_consultation';
+  action_payload: Record<string, unknown>;
+  execute_at: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  locked_until: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface Conversation {
@@ -181,7 +196,13 @@ export interface Conversation {
   content: string;
   message_type: string;
   step_at_time: string | null;
+  ai_metadata: Record<string, unknown> | null;
   created_at: string;
+}
+
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export interface FlowContext {
@@ -190,4 +211,22 @@ export interface FlowContext {
   currentStep: ScenarioStep;
   hearingData: Record<string, string>;
   bookingData?: Booking;
+  conversationHistory: ConversationMessage[];
+  env: Env;
+}
+
+export interface AIResponse {
+  reply_message: string;
+  escalate_to_human: boolean;
+  extracted_data?: Record<string, string>;
+  insight?: string;
+  is_hearing_complete?: boolean;
+  should_continue_follow_up?: boolean;
+  recommended_next_timing_hours?: number;
+}
+
+export interface StaffNotification {
+  type: 'human_handoff' | 'no_show' | 'stalled' | 'error';
+  endUser: EndUser;
+  reason: string;
 }

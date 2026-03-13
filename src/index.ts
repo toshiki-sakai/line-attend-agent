@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Env, QueuePayload } from './types';
+import type { Env } from './types';
 import webhook from './routes/webhook';
 import health from './routes/health';
 import { handleScheduled } from './services/scheduler';
@@ -14,4 +14,4 @@ export default {
   fetch: app.fetch,
   scheduled: handleScheduled,
   queue: handleQueueMessage as ExportedHandlerQueueHandler<Env>,
-} satisfies ExportedHandler<Env>;
+};

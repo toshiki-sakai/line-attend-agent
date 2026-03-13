@@ -10,7 +10,7 @@ crons = ["* * * * *"]
 # KV Namespace（テナント設定キャッシュ）
 [[kv_namespaces]]
 binding = "TENANT_CACHE"
-id = "placeholder_kv_id"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 # Queue（非同期メッセージ処理）
 [[queues.producers]]
@@ -21,3 +21,4 @@ binding = "MESSAGE_QUEUE"
 queue = "line-events"
 max_batch_size = 10
 max_retries = 3
+dead_letter_queue = "line-events-dlq"

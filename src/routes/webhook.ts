@@ -14,10 +14,13 @@ webhook.post('/webhook/:tenantId', async (c) => {
     tenant = await getTenant(tenantId, c.env);
   } catch {
     logger.error('Tenant not found for webhook', { tenantId });
-    return c.text('Tenant not found', 404);
+    return c.text('Not found', 404);
   }
 
-  // 署名検証
+  if (!tenant.is_active) {
+    return c.text('Not found', 404);
+  }
+
   const body = await c.req.text();
   const signature = c.req.header('x-line-signature') || '';
   if (!verifySignature(body, signature, tenant.line_channel_secret)) {
@@ -25,12 +28,12 @@ webhook.post('/webhook/:tenantId', async (c) => {
     return c.text('Invalid signature', 401);
   }
 
-  // 即200を返し、重い処理はQueueに投げる
-  const events = JSON.parse(body).events;
-  if (events && events.length > 0) {
+  const events = JSON.parse(body).events || [];
+  if (events.length > 0) {
     await c.env.MESSAGE_QUEUE.send({
-      tenantId,
+      tenantId: tenant.id,
       events,
+      receivedAt: new Date().toISOString(),
     });
   }
 

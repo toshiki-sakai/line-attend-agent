@@ -45,6 +45,7 @@ AIモデル:          Claude API (Anthropic) — claude-sonnet-4-20250514
 KVストア:          Cloudflare KV（テナント設定キャッシュ用）
 キュー:            Cloudflare Queues（非同期メッセージ処理用）
 ホスティング:       Cloudflare Workers（エッジデプロイ）
+タイムゾーン:       全日時をUTCで保存。表示時にAsia/Tokyoへ変換（date-fns-tz使用）
 ```
 
 ### 選定理由
@@ -54,134 +55,151 @@ KVストア:          Cloudflare KV（テナント設定キャッシュ用）
 - **Cloudflare Cron Triggers**: Workers内蔵のcron。別途サーバー不要でスケジュール実行が可能（最小間隔1分）
 - **Cloudflare KV**: テナント設定をエッジにキャッシュ。毎回DBに取りに行かなくて済む
 - **Cloudflare Queues**: LINE Webhookは即200を返し、重い処理（Claude API呼び出し等）はQueueに投げて非同期処理。30秒制限対策の本命
-- **Supabase**: マルチテナント管理、Row Level Security（RLS）でテナント分離、リアルタイム通知が将来の管理画面で活きる
+- **Supabase**: マルチテナント管理、RLSでテナント分離。接続はSupabase JS Client（REST API経由）を使い、Workers環境のコネクションプーリング問題を回避
 - **Claude API**: 日本語の自然さ、システムプロンプトによるガードレール制御のしやすさ
+
+### 型定義（Env — 全ファイルで参照する共通型）
+
+```typescript
+// src/types.ts
+
+export interface Env {
+  TENANT_CACHE: KVNamespace;
+  MESSAGE_QUEUE: Queue<QueuePayload>;
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
+  ANTHROPIC_API_KEY: string;
+}
+
+export interface QueuePayload {
+  tenantId: string;
+  events: LineWebhookEvent[];
+  receivedAt: string;  // ISO文字列。重複排除に使う
+}
+
+export interface LineWebhookEvent {
+  type: 'follow' | 'unfollow' | 'message' | 'postback';
+  timestamp: number;
+  source: { userId: string; type: string };
+  replyToken?: string;
+  message?: { type: string; text?: string; id: string };
+  postback?: { data: string };
+}
+```
 
 ### ディレクトリ構成
 
 ```
 line-attend-agent/
 ├── src/
-│   ├── index.ts                 # Honoアプリ起点 + Workers export
+│   ├── index.ts                 # Honoアプリ起点 + Workers export（fetch, scheduled, queue）
+│   ├── types.ts                 # Env, QueuePayload, LineWebhookEvent 等の共通型定義
 │   ├── config/
-│   │   └── tenant-config.ts     # テナント設定の型定義・ローダー
+│   │   └── tenant-config.ts     # テナント設定の型定義・ローダー・KVキャッシュ
 │   ├── routes/
 │   │   ├── webhook.ts           # LINE Webhook受信エンドポイント
 │   │   └── health.ts            # ヘルスチェック
 │   ├── services/
-│   │   ├── line.ts              # LINE Messaging API送受信
-│   │   ├── ai.ts                # Claude API呼び出し・プロンプト管理
-│   │   ├── scheduler.ts         # Cron Trigger ハンドラ（リマインド・追客）
-│   │   ├── booking.ts           # 予約管理（枠の管理・確定・キャンセル）
+│   │   ├── line.ts              # LINE Messaging API送受信（reply / push 両対応）
+│   │   ├── ai.ts                # Claude API呼び出し・プロンプト管理・会話履歴構築
+│   │   ├── scheduler.ts         # Cron Trigger ハンドラ（排他制御付き）
+│   │   ├── booking.ts           # 予約管理（楽観的ロック付き）
 │   │   ├── flow-engine.ts       # シナリオエンジン（状態遷移管理）
-│   │   └── queue-handler.ts     # Cloudflare Queue コンシューマー（非同期処理）
-│   ├── models/
-│   │   ├── tenant.ts            # テナント（顧客スクール）
-│   │   ├── end-user.ts          # エンドユーザー（LINE友だち）
-│   │   ├── conversation.ts      # 会話ログ
-│   │   ├── booking.ts           # 予約データ
-│   │   └── scenario.ts          # シナリオ定義
-│   ├── prompts/
-│   │   ├── system-base.ts       # 全テナント共通のベースシステムプロンプト
-│   │   ├── hearing.ts           # ヒアリング用プロンプトテンプレート
-│   │   ├── follow-up.ts         # 追客用プロンプトテンプレート
-│   │   └── post-consultation.ts # 相談後フォロー用プロンプトテンプレート
+│   │   ├── queue-handler.ts     # Queue コンシューマー（冪等性保証）
+│   │   ├── analytics.ts         # 着座率・コンバージョン計測
+│   │   └── notification.ts      # 人間スタッフへの通知
+│   ├── models/                  # DB操作（各テーブルのCRUD）
+│   ├── prompts/                 # AI用プロンプトテンプレート
 │   ├── guards/
-│   │   └── ai-guardrails.ts     # AIガードレール（禁止表現チェック）
+│   │   └── ai-guardrails.ts     # ガードレール（禁止表現チェック + 再生成ループ）
 │   └── utils/
-│       ├── supabase.ts          # Supabaseクライアント
-│       └── logger.ts            # ログ
-├── tenant-configs/              # 顧客ごとのJSON設定（MVPではここで管理）
+│       ├── supabase.ts          # Supabaseクライアント（REST API経由）
+│       ├── logger.ts            # 構造化ログ（JSON形式）
+│       ├── datetime.ts          # UTC ↔ Asia/Tokyo変換
+│       └── idempotency.ts       # 冪等性チェック（Webhook重複排除）
+├── tenant-configs/
 │   └── example-school.json
 ├── supabase/
-│   └── migrations/              # DBマイグレーション
-├── wrangler.toml                # Cloudflare Workers設定
+│   └── migrations/
+├── wrangler.toml
 ├── package.json
 ├── tsconfig.json
-└── .dev.vars                    # ローカル開発用環境変数（.envの代わり）
+└── .dev.vars
 ```
 
 ---
 
 ## データベース設計
 
-### テーブル一覧
-
 ```sql
--- ============================================
--- テナント（オンラインスクール顧客）
--- ============================================
+-- テナント
 CREATE TABLE tenants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,                          -- スクール名
-  line_channel_id TEXT NOT NULL UNIQUE,        -- LINE公式アカウントのChannel ID
-  line_channel_secret TEXT NOT NULL,           -- Channel Secret
-  line_channel_access_token TEXT NOT NULL,     -- Channel Access Token
-  scenario_config JSONB NOT NULL DEFAULT '{}', -- シナリオ設定（後述）
-  hearing_config JSONB NOT NULL DEFAULT '[]',  -- ヒアリング項目設定
-  reminder_config JSONB NOT NULL DEFAULT '{}', -- リマインド設定
-  tone_config JSONB NOT NULL DEFAULT '{}',     -- トーン・文言設定
-  guardrail_config JSONB NOT NULL DEFAULT '{}',-- 個別ガードレール設定
-  school_context TEXT NOT NULL DEFAULT '',     -- スクールの説明（AI用コンテキスト）
+  name TEXT NOT NULL,
+  line_channel_id TEXT NOT NULL UNIQUE,
+  line_channel_secret TEXT NOT NULL,
+  line_channel_access_token TEXT NOT NULL,
+  scenario_config JSONB NOT NULL DEFAULT '{}',
+  hearing_config JSONB NOT NULL DEFAULT '[]',
+  reminder_config JSONB NOT NULL DEFAULT '{}',
+  tone_config JSONB NOT NULL DEFAULT '{}',
+  guardrail_config JSONB NOT NULL DEFAULT '{}',
+  school_context TEXT NOT NULL DEFAULT '',
+  notification_config JSONB NOT NULL DEFAULT '{}', -- スタッフ通知設定
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ============================================
--- エンドユーザー（LINE友だち）
--- ============================================
+-- エンドユーザー
 CREATE TABLE end_users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id),
-  line_user_id TEXT NOT NULL,                  -- LINE userId
-  display_name TEXT,                           -- LINEの表示名
-  current_step TEXT NOT NULL DEFAULT 'registered', -- 現在のシナリオステップ
-  status TEXT NOT NULL DEFAULT 'active',       -- active / booked / consulted / enrolled / dropped
-  hearing_data JSONB NOT NULL DEFAULT '{}',    -- ヒアリング結果
-  insight_summary TEXT,                        -- AIが生成したインサイト要約
-  follow_up_count INTEGER NOT NULL DEFAULT 0,  -- 追客回数
-  last_message_at TIMESTAMPTZ,                 -- 最後にメッセージを送った日時
-  last_response_at TIMESTAMPTZ,               -- 最後にユーザーが返信した日時
-  source TEXT,                                 -- 流入元（x / youtube / other）
+  line_user_id TEXT NOT NULL,
+  display_name TEXT,
+  current_step TEXT NOT NULL DEFAULT 'registered',
+  status TEXT NOT NULL DEFAULT 'active',
+  -- active / booked / consulted / enrolled / dropped / stalled
+  hearing_data JSONB NOT NULL DEFAULT '{}',
+  insight_summary TEXT,
+  follow_up_count INTEGER NOT NULL DEFAULT 0,
+  last_message_at TIMESTAMPTZ,
+  last_response_at TIMESTAMPTZ,
+  source TEXT,
+  is_blocked BOOLEAN NOT NULL DEFAULT false, -- unfollow検知
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(tenant_id, line_user_id)
 );
 
--- ============================================
 -- 会話ログ
--- ============================================
 CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   end_user_id UUID NOT NULL REFERENCES end_users(id),
   tenant_id UUID NOT NULL REFERENCES tenants(id),
-  role TEXT NOT NULL,                          -- 'user' / 'assistant' / 'system'
+  role TEXT NOT NULL,                     -- user / assistant / system
   content TEXT NOT NULL,
-  message_type TEXT NOT NULL DEFAULT 'text',   -- text / flex / quick_reply
-  step_at_time TEXT,                           -- この発言時のシナリオステップ
+  message_type TEXT NOT NULL DEFAULT 'text', -- text / flex / image / sticker
+  step_at_time TEXT,
+  ai_metadata JSONB,                      -- extracted_data, insight等
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ============================================
 -- 予約
--- ============================================
 CREATE TABLE bookings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   end_user_id UUID NOT NULL REFERENCES end_users(id),
   tenant_id UUID NOT NULL REFERENCES tenants(id),
-  scheduled_at TIMESTAMPTZ NOT NULL,           -- 相談会の日時
-  zoom_url TEXT,                               -- ZoomのURL
-  status TEXT NOT NULL DEFAULT 'confirmed',    -- confirmed / cancelled / completed / no_show
-  reminded_at TIMESTAMPTZ,                     -- 最後にリマインドした日時
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  zoom_url TEXT,
+  status TEXT NOT NULL DEFAULT 'confirmed', -- confirmed / cancelled / completed / no_show
+  reminded_at TIMESTAMPTZ,
   reminder_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ============================================
--- スケジュール枠（顧客が設定する空き枠）
--- ============================================
+-- 予約枠
 CREATE TABLE available_slots (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id),
@@ -189,204 +207,108 @@ CREATE TABLE available_slots (
   end_at TIMESTAMPTZ NOT NULL,
   max_bookings INTEGER NOT NULL DEFAULT 1,
   current_bookings INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 0, -- 楽観的ロック
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ============================================
+-- スケジュール済みアクション（遅延送信の中央管理テーブル）
+-- シナリオのdelay、リマインド、追客、フォローをすべてここで管理
+CREATE TABLE scheduled_actions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  end_user_id UUID NOT NULL REFERENCES end_users(id),
+  action_type TEXT NOT NULL,
+  -- scenario_step / reminder / follow_up / post_consultation
+  action_payload JSONB NOT NULL DEFAULT '{}',
+  execute_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  -- pending / processing / completed / failed / cancelled
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  last_error TEXT,
+  locked_until TIMESTAMPTZ, -- Cron排他制御
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ
+);
+
 -- 相談後フォロー
--- ============================================
 CREATE TABLE post_consultation_actions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id UUID NOT NULL REFERENCES bookings(id),
   tenant_id UUID NOT NULL REFERENCES tenants(id),
-  action_type TEXT NOT NULL,                   -- thank_you / enrollment_guide / follow_up / survey
-  status TEXT NOT NULL DEFAULT 'pending',      -- pending / sent / completed
+  action_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
   scheduled_at TIMESTAMPTZ NOT NULL,
-  content JSONB,                               -- 送信内容（AI生成 or テンプレート）
+  content JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Webhook冪等性キー
+CREATE TABLE processed_events (
+  event_id TEXT PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id),
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ファネル分析ビュー
+CREATE VIEW v_funnel_metrics AS
+SELECT
+  t.id AS tenant_id, t.name AS tenant_name,
+  COUNT(DISTINCT eu.id) AS total_users,
+  COUNT(DISTINCT eu.id) FILTER (WHERE eu.status IN ('booked','consulted','enrolled')) AS booked_users,
+  COUNT(DISTINCT eu.id) FILTER (WHERE eu.status IN ('consulted','enrolled')) AS consulted_users,
+  COUNT(DISTINCT eu.id) FILTER (WHERE eu.status = 'enrolled') AS enrolled_users,
+  ROUND(COUNT(DISTINCT eu.id) FILTER (WHERE eu.status IN ('consulted','enrolled'))::DECIMAL
+    / NULLIF(COUNT(DISTINCT eu.id) FILTER (WHERE eu.status IN ('booked','consulted','enrolled')),0)*100,1
+  ) AS attendance_rate -- ★ 最重要KPI: 着座率
+FROM tenants t LEFT JOIN end_users eu ON eu.tenant_id = t.id
+GROUP BY t.id, t.name;
+
+-- Supabase RPC: 排他ロック付きでpendingアクションを取得
+CREATE OR REPLACE FUNCTION lock_pending_actions(batch_size INT, lock_duration INTERVAL DEFAULT '5 minutes')
+RETURNS SETOF scheduled_actions AS $$
+  UPDATE scheduled_actions
+  SET status = 'processing', locked_until = now() + lock_duration
+  WHERE id IN (
+    SELECT id FROM scheduled_actions
+    WHERE status = 'pending' AND execute_at <= now()
+      AND (locked_until IS NULL OR locked_until < now())
+    ORDER BY execute_at ASC
+    LIMIT batch_size
+    FOR UPDATE SKIP LOCKED
+  )
+  RETURNING *;
+$$ LANGUAGE sql;
 
 -- インデックス
 CREATE INDEX idx_end_users_tenant ON end_users(tenant_id);
 CREATE INDEX idx_end_users_status ON end_users(tenant_id, status);
-CREATE INDEX idx_end_users_step ON end_users(tenant_id, current_step);
-CREATE INDEX idx_conversations_end_user ON conversations(end_user_id);
-CREATE INDEX idx_bookings_tenant_status ON bookings(tenant_id, status);
+CREATE INDEX idx_conversations_end_user ON conversations(end_user_id, created_at);
 CREATE INDEX idx_bookings_scheduled ON bookings(scheduled_at);
-CREATE INDEX idx_available_slots_tenant ON available_slots(tenant_id, start_at);
-CREATE INDEX idx_post_consultation_booking ON post_consultation_actions(booking_id);
+CREATE INDEX idx_scheduled_actions_pending ON scheduled_actions(execute_at) WHERE status = 'pending';
+CREATE INDEX idx_available_slots_active ON available_slots(tenant_id, start_at) WHERE is_active = true;
+CREATE INDEX idx_processed_events_cleanup ON processed_events(processed_at);
 ```
 
 ---
 
 ## テナント設定スキーマ（JSON）
 
-顧客ごとにカスタマイズする設定。MVPでは `tenant-configs/` ディレクトリのJSONファイルで管理し、起動時にDBに読み込む。
+顧客ごとにカスタマイズする設定。MVPでは `tenant-configs/` ディレクトリのJSONファイルで管理し、DBに読み込む。
+（※ テナント設定JSONは旧版と同一のため省略。主要な追加点のみ以下に記載）
+
+旧版に加え、以下の設定セクションを追加:
 
 ```jsonc
 {
-  // ========================================
-  // 1. シナリオ設定（最優先カスタマイズ項目）
-  // ========================================
-  "scenario": {
-    "steps": [
-      {
-        "id": "welcome",
-        "type": "template",          // template = 定型メッセージ, ai = AI生成
-        "trigger": "follow",         // follow = 友だち追加時, auto = 前ステップ完了後自動
-        "delay_minutes": 0,
-        "message": {
-          "type": "flex",            // text / flex / quick_reply
-          "content": "..."           // Flex Messageの場合はJSON文字列
-        },
-        "next_step": "education_1"
-      },
-      {
-        "id": "education_1",
-        "type": "template",
-        "trigger": "auto",
-        "delay_minutes": 30,         // 前ステップから30分後に送信
-        "message": {
-          "type": "text",
-          "content": "こんにちは！まずは3分の動画をご覧ください🎬\n{education_video_url}"
-        },
-        "next_step": "hearing_start"
-      },
-      {
-        "id": "hearing_start",
-        "type": "ai",                // AIが自然言語でヒアリング開始
-        "trigger": "auto",
-        "delay_minutes": 1440,       // 教育コンテンツ配信の24時間後
-        "ai_config": {
-          "purpose": "hearing",      // hearing / follow_up / post_consultation
-          "max_turns": 6,            // AI会話の最大ターン数
-          "completion_condition": "all_items_collected" // 全項目収集で完了
-        },
-        "next_step": "booking_invite"
-      },
-      {
-        "id": "booking_invite",
-        "type": "template",
-        "trigger": "auto",
-        "delay_minutes": 0,          // ヒアリング完了直後
-        "message": {
-          "type": "flex",
-          "content": "BOOKING_SELECTOR" // 特殊キーワード: 予約日程選択UIを表示
-        },
-        "next_step": "booked"
-      },
-      {
-        "id": "booked",
-        "type": "template",
-        "trigger": "booking_confirmed",
-        "delay_minutes": 0,
-        "message": {
-          "type": "text",
-          "content": "ご予約ありがとうございます🎉\n{booking_date}に{booking_time}からZoomでお待ちしています！\n\nZoomリンク: {zoom_url}"
-        },
-        "next_step": "pre_consultation_remind"
-      }
-    ]
-  },
+  // ...既存の scenario, hearing, reminder, tone, guardrails, post_consultation, booking に加え...
 
-  // ========================================
-  // 2. ヒアリング項目設定（2番目に重要）
-  // ========================================
-  "hearing": {
-    "items": [
-      {
-        "id": "current_problem",
-        "question_hint": "今一番困っていること・解決したい課題",
-        "required": true,
-        "priority": 1
-      },
-      {
-        "id": "desired_outcome",
-        "question_hint": "スクールで得たい成果・なりたい姿",
-        "required": true,
-        "priority": 2
-      },
-      {
-        "id": "experience_level",
-        "question_hint": "現在のスキルレベル・経験",
-        "required": true,
-        "priority": 3
-      },
-      {
-        "id": "urgency",
-        "question_hint": "いつまでに変わりたいか・緊急度",
-        "required": false,
-        "priority": 4
-      },
-      {
-        "id": "past_experience",
-        "question_hint": "過去に他のスクールや教材を試した経験",
-        "required": false,
-        "priority": 5
-      }
-    ]
-  },
-
-  // ========================================
-  // 3. リマインド設定（3番目に重要）
-  // ========================================
-  "reminder": {
-    "pre_consultation": [
-      { "timing": "3_days_before", "type": "template", "content": "3日後に無料相談会です！何か気になることがあれば、お気軽にメッセージくださいね😊" },
-      { "timing": "1_day_before", "type": "ai", "purpose": "personalized_remind" },
-      { "timing": "1_hour_before", "type": "template", "content": "まもなく相談会の時間です！\n\nZoomリンク: {zoom_url}\n\nお会いできるのを楽しみにしています✨" }
-    ],
-    "no_response_follow_up": {
-      "enabled": true,
-      "strategy": "ai_decided",     // "fixed" = 固定間隔, "ai_decided" = AI判断
-      "max_attempts": 5,
-      "min_interval_hours": 24,
-      "max_interval_hours": 72,
-      "escalation_message": "人間のスタッフに引き継ぎます。少々お待ちください。"
-    }
-  },
-
-  // ========================================
-  // 4. トーン・文言設定
-  // ========================================
-  "tone": {
-    "personality": "friendly_professional", // friendly_professional / casual / formal
-    "emoji_usage": "moderate",              // none / minimal / moderate / heavy
-    "language_style": "です・ます調",
-    "custom_instructions": "20代〜30代の社会人がターゲット。堅すぎず、フランクすぎない。相手の名前を呼ぶ。"
-  },
-
-  // ========================================
-  // 5. ガードレール設定（追加の禁止事項）
-  // ========================================
-  "guardrails": {
-    "forbidden_topics": ["具体的な受講料金", "他社スクールの名前や批判"],
-    "forbidden_expressions": ["絶対", "保証", "確実", "必ず", "100%"],
-    "answer_scope": "プログラミング学習とキャリアチェンジに関する一般的な質問のみ回答。政治・宗教・医療・法律相談には回答しない。",
-    "human_handoff_trigger": "ユーザーが明確に不満を表明した場合、または3回連続で意図が読み取れない場合"
-  },
-
-  // ========================================
-  // 6. 相談後フォロー設定
-  // ========================================
-  "post_consultation": {
-    "actions": [
-      { "type": "thank_you", "delay_hours": 1, "method": "ai" },
-      { "type": "enrollment_guide", "delay_hours": 24, "method": "template", "content": "..." },
-      { "type": "follow_up", "delay_hours": 72, "method": "ai", "condition": "status != enrolled" },
-      { "type": "survey", "delay_hours": 168, "method": "template", "content": "SURVEY_FLEX_MESSAGE" }
-    ]
-  },
-
-  // ========================================
-  // 7. 予約枠設定
-  // ========================================
-  "booking": {
-    "zoom_base_url": "https://zoom.us/j/xxxxxxxxxx",
-    "duration_minutes": 60,
-    "buffer_minutes": 15,
-    "max_daily_bookings": 3
+  // ★追加: スタッフ通知設定（人間エスカレーション用）
+  "notification": {
+    "method": "line",                      // line / email
+    "staff_line_user_ids": ["Uxxxxxxxxx"], // 通知先スタッフのLINE userId
+    "notify_on": ["human_handoff", "no_show", "stalled", "error"]
   }
 }
 ```
@@ -398,42 +320,39 @@ CREATE INDEX idx_post_consultation_booking ON post_consultation_actions(booking_
 ### 状態遷移図
 
 ```
-[友だち追加]
+[友だち追加] → [registered] → welcome送信
+    ↓ (delay → scheduled_actions登録)
+[education] → 教育コンテンツ配信（push message）
+    ↓ (delay → scheduled_actions登録)
+[hearing] → AIヒアリング（会話履歴付きClaude API呼び出し）
+    ↓ (全必須項目収集)
+[booking_invited] → Flex Messageで日程選択
+    ↓ (postback)
+[booked] → 予約確認 + リマインドscheduled_actions一括登録
     ↓
-[registered] → welcome メッセージ送信
-    ↓ (delay)
-[education] → 教育コンテンツ配信（1〜N本、テナント設定による）
-    ↓ (delay)
-[hearing] → AIヒアリング開始
-    ↓ (全項目収集完了)
-[booking_invited] → 日程選択Flex Message送信
-    ↓ (日程選択)
-[booked] → 予約確認メッセージ
-    ↓ (スケジューラがリマインド)
-[pre_consultation] → 前日・当日リマインド
-    ↓ (相談会実施)
-[consulted] → 相談後フォロー開始
+[pre_consultation] → 3日前・前日・1時間前リマインド
     ↓
-[post_follow_up] → お礼 → 入会案内 → 追客 → アンケート
+[consulted] → 相談後フォロー
     ↓
 [enrolled] or [dropped]
+
+--- 異常系 ---
+[unfollow] → is_blocked=true + 全pending actions cancel
+[既読スルー] → 段階的追客 → max到達 → [stalled] + スタッフ通知
+[ノーショー] → 予約時刻+30分で自動検知 → フォロー + 再予約誘導
+[想定外入力] → AI意図解釈 → 対応不能 → 人間引き継ぎ
 ```
 
-### 分岐ルール
+### 重要: reply token と push message の使い分け
 
 ```
-既読スルー（未返信）の場合:
-  → no_response_follow_up設定に従い追客
-  → max_attempts到達 → escalation_message送信 → ステータスを"stalled"に
-  → AI判断モード時はClaude APIが送信タイミング・メッセージ内容を決定
+reply token（無料・即座に返す必要あり）:
+  - Queue経由の非同期処理では失効リスクがある
+  - MVPではAI生成メッセージを安全に返すため、すべてpush messageを使う
+  - LINE有料プラン必須。テナント顧客に事前に説明すること
 
-予約後キャンセルの場合:
-  → 再予約を促すメッセージ（AI生成）
-  → 再度booking_invitedステップに戻す
-
-ノーショーの場合:
-  → 当日のフォロー（AI生成: 「今日ご都合悪かったですか？」的なメッセージ）
-  → 再予約誘導
+push message（有料・いつでも送れる）:
+  - 遅延送信、リマインド、追客、AI生成メッセージ → すべてこちら
 ```
 
 ### flow-engine 実装方針
@@ -447,53 +366,68 @@ interface FlowContext {
   currentStep: ScenarioStep;
   hearingData: Record<string, string>;
   bookingData?: Booking;
+  conversationHistory: ConversationMessage[]; // ★ 直近20件の会話履歴
+  env: Env;
 }
 
 class FlowEngine {
-  /**
-   * ユーザーからメッセージを受信した時のメインハンドラ
-   */
-  async handleUserMessage(context: FlowContext, userMessage: string): Promise<void> {
-    const step = context.currentStep;
+  async handleUserMessage(context: FlowContext, userMessage: string, messageType: string): Promise<void> {
+    if (context.endUser.is_blocked) return;
 
-    if (step.type === 'ai') {
-      // AI会話ステップの場合
-      const aiResponse = await this.aiService.generateResponse(context, userMessage);
-      await this.lineService.sendMessage(context.endUser.line_user_id, aiResponse);
-
-      // ヒアリング完了判定
-      if (step.ai_config?.purpose === 'hearing') {
-        const isComplete = await this.checkHearingCompletion(context);
-        if (isComplete) {
-          await this.advanceStep(context);
-        }
+    // 非テキストメッセージ対応
+    if (messageType !== 'text') {
+      if (context.currentStep.type === 'ai') {
+        await pushMessage(context.tenant, context.endUser.line_user_id,
+          'ありがとうございます！テキストでお返事いただけると嬉しいです😊');
       }
-    } else if (step.type === 'template') {
-      // 定型ステップでユーザーが返信した場合（想定外の入力）
-      // → AIで意図を解釈して適切に対応
+      return;
+    }
+
+    if (context.currentStep.type === 'ai') {
+      const aiResponse = await this.aiService.generateResponse(context, userMessage);
+      // ガードレールチェック（最大3回再生成）
+      const validated = await this.guardrails.validateWithRetry(aiResponse.reply_message, context, 3);
+      if (!validated.passed) {
+        await this.escalateToHuman(context, 'ガードレール違反が解消されない');
+        return;
+      }
+      if (aiResponse.escalate_to_human) {
+        await this.escalateToHuman(context, 'AI判断によるエスカレーション');
+        return;
+      }
+      await pushMessage(context.tenant, context.endUser.line_user_id, validated.message);
+      // ヒアリングデータ保存、インサイト更新、完了判定...
+    } else if (context.currentStep.type === 'template') {
       const aiResponse = await this.aiService.handleUnexpectedInput(context, userMessage);
-      await this.lineService.sendMessage(context.endUser.line_user_id, aiResponse);
+      await pushMessage(context.tenant, context.endUser.line_user_id, aiResponse);
     }
   }
 
-  /**
-   * スケジューラから呼ばれる定期実行ハンドラ
-   */
-  async processScheduledActions(): Promise<void> {
-    // 1. delay待ちのステップを確認し、時間が来たら送信
-    // 2. リマインド対象の予約を確認し送信
-    // 3. 追客対象ユーザーを確認し送信
-    // 4. 相談後フォローアクションを確認し送信
+  async advanceStep(context: FlowContext): Promise<void> {
+    const nextStep = this.getStepById(context.tenant, context.currentStep.next_step);
+    if (!nextStep) return;
+    await this.updateCurrentStep(context.endUser.id, nextStep.id);
+    if (nextStep.trigger === 'auto' && nextStep.delay_minutes === 0) {
+      await this.executeStep(context, nextStep);
+    } else if (nextStep.trigger === 'auto' && nextStep.delay_minutes > 0) {
+      await this.scheduleAction({
+        tenant_id: context.tenant.id,
+        end_user_id: context.endUser.id,
+        action_type: 'scenario_step',
+        action_payload: { step_id: nextStep.id },
+        execute_at: new Date(Date.now() + nextStep.delay_minutes * 60 * 1000),
+      });
+    }
   }
 
-  /**
-   * 次のステップに進める
-   */
-  async advanceStep(context: FlowContext): Promise<void> {
-    const nextStepId = context.currentStep.next_step;
-    // DBのcurrent_stepを更新
-    // 次のステップがautoトリガーでdelay_minutes=0なら即実行
-    // delay_minutes>0ならスケジュール登録
+  async escalateToHuman(context: FlowContext, reason: string): Promise<void> {
+    await pushMessage(context.tenant, context.endUser.line_user_id,
+      '担当スタッフにおつなぎしますね。少々お待ちください😊');
+    await this.updateStatus(context.endUser.id, 'stalled');
+    await this.notificationService.notifyStaff(context.tenant, {
+      type: 'human_handoff', endUser: context.endUser, reason,
+    });
+    await this.cancelPendingActions(context.endUser.id);
   }
 }
 ```
@@ -502,50 +436,106 @@ class FlowEngine {
 
 ## AI会話設計
 
-### 共通システムプロンプト（全テナント共通ベース）
+### 重要: 会話履歴の構築
+
+```typescript
+// services/ai.ts — Claude APIに送るmessages配列を構築する
+// 会話の文脈がないとAIは適切な応答ができない
+
+async function buildMessagesArray(
+  endUserId: string, currentUserMessage: string, env: Env
+): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  // 直近20件の会話ログを取得
+  const recentLogs = await getRecentConversations(endUserId, 20, env);
+  const messages = recentLogs.map(log => ({
+    role: log.role as 'user' | 'assistant',
+    content: log.content,
+  }));
+  messages.push({ role: 'user', content: currentUserMessage });
+  return messages;
+}
+
+async function callClaudeAPI(
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  env: Env,
+  options: { temperature?: number } = {}
+): Promise<any> {
+  const { temperature = 0.5 } = options;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 400,
+          temperature,
+          system: systemPrompt,
+          messages,
+        }),
+      });
+      if (!response.ok) throw new Error(`Claude API: ${response.status}`);
+      const data: any = await response.json();
+      const text = data.content[0]?.text || '';
+      const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      return JSON.parse(cleaned);
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500));
+    }
+  }
+}
+```
+
+### 共通システムプロンプト
 
 ```typescript
 // prompts/system-base.ts
-
 export function buildSystemPrompt(tenant: Tenant, endUser: EndUser, purpose: string): string {
   return `
 あなたは「${tenant.name}」の公式LINEアシスタントです。
 
-## あなたの役割
-- エンドユーザーと自然な会話をしながら、無料相談会への参加を後押しする
-- ユーザーの悩みや目標を丁寧にヒアリングし、相談会で最適な提案ができるよう情報を集める
+## 役割
+- ユーザーと自然な会話をしながら無料相談会への参加を後押しする
+- 悩みや目標をヒアリングし、相談会で最適な提案ができるよう情報を集める
 - 常にユーザーの味方として振る舞い、安心感を与える
 
-## トーン設定
-- スタイル: ${tenant.tone_config.personality}
-- 絵文字使用: ${tenant.tone_config.emoji_usage}
+## トーン: ${tenant.tone_config.personality}
+- 絵文字: ${tenant.tone_config.emoji_usage}
 - 文体: ${tenant.tone_config.language_style}
-- 追加指示: ${tenant.tone_config.custom_instructions}
+- ${tenant.tone_config.custom_instructions}
 
-## 絶対に守るべきルール（ガードレール）
-1. 具体的な料金・価格の数値は絶対に言わない。聞かれたら「相談会で詳しくご案内します」と誘導する
-2. 他社スクール・競合サービスの名前を出したり批判したりしない
-3. 「絶対」「保証」「確実」「必ず」「100%」などの断定表現を使わない
+## 絶対ルール（ガードレール）
+1. 金額表現禁止（「〇〇円」「〇〇万」等）。聞かれたら「相談会で詳しくご案内しますね！」
+2. 他社スクール・競合の名前や批判は禁止
+3. 「絶対」「保証」「確実」「必ず」「100%」禁止。代わりに「〜を目指せます」等
 4. ${tenant.guardrail_config.answer_scope}
 5. 禁止トピック: ${tenant.guardrail_config.forbidden_topics.join(', ')}
-6. 回答範囲外の質問には「それについては相談会で専門のスタッフがお答えできますよ！」と返す
-7. ユーザーが明確に不満・怒りを表明した場合は「担当スタッフにおつなぎしますね」と伝え、人間に引き継ぐ
+6. 範囲外の質問→「相談会で専門スタッフがお答えできますよ！」
+7. 不満・怒り表明 or 3回連続意図不明→ { "reply_message": "担当スタッフにおつなぎしますね。", "escalate_to_human": true }
 
 ## スクール情報
 ${tenant.school_context}
 
-## 現在のユーザー情報
-- 表示名: ${endUser.display_name || '（未取得）'}
-- 現在のステップ: ${endUser.current_step}
-- これまでのヒアリング情報: ${JSON.stringify(endUser.hearing_data)}
-- インサイト要約: ${endUser.insight_summary || 'なし'}
+## ユーザー情報
+- 名前: ${endUser.display_name || '未取得'}
+- ステップ: ${endUser.current_step}
+- ヒアリング済み: ${JSON.stringify(endUser.hearing_data)}
+- インサイト: ${endUser.insight_summary || 'なし'}
 
-## 会話のルール
-- 1回のメッセージは150文字以内に収める（LINEの可読性のため）
-- 質問は1度に1つだけ。複数質問を一気にしない
-- ユーザーの返答を必ず受け止めてから（共感・承認）次に進む
-- 自然な会話の流れを最優先。ロボット的にならない
-- ユーザーの名前がわかっている場合は適度に名前を呼ぶ
+## 会話ルール
+- 1メッセージ150文字以内
+- 質問は1度に1つだけ
+- 必ず共感・承認してから次に進む
+- 自然な会話優先。ロボット的にならない
+
+## 応答フォーマット（JSON以外出力禁止）
+{ "reply_message": "...", "escalate_to_human": false }
 `.trim();
 }
 ```
@@ -554,40 +544,37 @@ ${tenant.school_context}
 
 ```typescript
 // prompts/hearing.ts
-
 export function buildHearingPrompt(tenant: Tenant, endUser: EndUser): string {
   const items = tenant.hearing_config.items;
   const collected = endUser.hearing_data;
-  const remaining = items.filter(item => !collected[item.id]);
+  const remaining = items.filter((item: any) => !collected[item.id]);
+  const requiredRemaining = remaining.filter((item: any) => item.required);
 
   return `
-## 今の目的: ヒアリング
+## 目的: ヒアリング
+自然な会話で以下の情報を収集。尋問にならないこと。
 
-以下の項目をユーザーとの自然な会話の中で収集してください。
-尋問のように聞くのではなく、相手の話に共感しながら自然に引き出してください。
+### 未収集（優先度順）
+${remaining.map((item: any) => `- ${item.question_hint}（ID: ${item.id}, 必須: ${item.required}）`).join('\n')}
 
-### 未収集の項目（優先度順）
-${remaining.map(item => `- ${item.question_hint}（ID: ${item.id}, 必須: ${item.required}）`).join('\n')}
+### 収集済み
+${Object.entries(collected).map(([k,v]) => `- ${k}: ${v}`).join('\n') || 'なし'}
 
-### 収集済みの項目
-${Object.entries(collected).map(([key, value]) => `- ${key}: ${value}`).join('\n') || 'なし'}
+### 完了条件: 必須残り${requiredRemaining.length}件 → 0になったらis_hearing_complete=true
 
-### 応答フォーマット
-以下のJSON形式で応答してください:
+### 応答フォーマット（JSON以外出力禁止）
 {
-  "reply_message": "ユーザーに送るメッセージ（150文字以内）",
-  "extracted_data": {
-    "項目ID": "抽出した内容"
-  },
-  "insight": "この会話から読み取れるユーザーのインサイト（内部メモ）",
-  "is_hearing_complete": false
+  "reply_message": "（150文字以内）",
+  "extracted_data": { "項目ID": "抽出内容" },
+  "insight": "内部メモ",
+  "is_hearing_complete": false,
+  "escalate_to_human": false
 }
 
-### 重要
-- extracted_dataにはこの会話ターンで新しく抽出できた情報のみ入れる
-- 無理に全項目を1回で聞かない。1ターン1質問
-- ユーザーが話したいことがあれば、それを優先して聞く
-- 必須項目がすべて収集できたらis_hearing_completeをtrueにする
+### ルール
+- extracted_data: このターンで新規抽出分のみ。なければ {}
+- 1ターン1質問。曖昧な回答は深掘り
+- ユーザーが話したいことを優先
 `.trim();
 }
 ```
@@ -596,30 +583,25 @@ ${Object.entries(collected).map(([key, value]) => `- ${key}: ${value}`).join('\n
 
 ```typescript
 // prompts/follow-up.ts
-
 export function buildFollowUpPrompt(tenant: Tenant, endUser: EndUser): string {
   return `
-## 今の目的: 追客（フォローアップ）
+## 目的: 追客（${endUser.follow_up_count + 1}回目）
 
-このユーザーはしばらく返信がありません。
-自然な形で会話を再開し、無料相談会への参加意欲を高めてください。
-
-### ユーザーの状態
-- 最後のメッセージ: ${endUser.last_response_at || '未返信'}
-- これまでの追客回数: ${endUser.follow_up_count}回
-- ヒアリング情報: ${JSON.stringify(endUser.hearing_data)}
+### ユーザー状態
+- 最後の返信: ${endUser.last_response_at || '未返信'}
+- ヒアリング: ${JSON.stringify(endUser.hearing_data)}
 - インサイト: ${endUser.insight_summary || 'なし'}
 
-### 追客の方針
-- 1回目: 軽い声かけ（「その後いかがですか？」的な）
-- 2回目: ヒアリングで聞いた悩みに寄り添うメッセージ
-- 3回目: 期間限定感や他の参加者の声を活用
-- 4回目: 最後の案内として「いつでも相談できます」と伝える
-- 5回目: 人間スタッフへの引き継ぎを案内
+### 回数別方針
+- 1回目: 軽い声かけ
+- 2回目: 悩みに寄り添うパーソナライズ
+- 3回目: 期間限定感・他の参加者の声
+- 4回目: 「いつでもご相談できますよ」で締め
+- 5回目: escalate_to_human = true
 
-### 応答フォーマット
+### 応答フォーマット（JSON以外出力禁止）
 {
-  "reply_message": "ユーザーに送るメッセージ（150文字以内）",
+  "reply_message": "（150文字以内）",
   "should_continue_follow_up": true,
   "recommended_next_timing_hours": 48,
   "escalate_to_human": false
@@ -632,302 +614,197 @@ export function buildFollowUpPrompt(tenant: Tenant, endUser: EndUser): string {
 
 ```typescript
 // prompts/post-consultation.ts
-
-export function buildPostConsultationPrompt(
-  tenant: Tenant, endUser: EndUser, actionType: string
-): string {
+export function buildPostConsultationPrompt(tenant: Tenant, endUser: EndUser, actionType: string): string {
   return `
-## 今の目的: 相談後フォロー（${actionType}）
-
-このユーザーは無料相談会に参加済みです。
-相談会での体験をもとに、適切なフォローを行ってください。
+## 目的: 相談後フォロー（${actionType}）
 
 ### ユーザー情報
-- ヒアリング情報: ${JSON.stringify(endUser.hearing_data)}
+- ヒアリング: ${JSON.stringify(endUser.hearing_data)}
 - インサイト: ${endUser.insight_summary || 'なし'}
-- 現在のステータス: ${endUser.status}
+- ステータス: ${endUser.status}
 
-### アクションタイプ別の方針
-- thank_you: 参加のお礼 + ヒアリング内容を踏まえた一言（「〇〇の目標、素敵ですね」等）
-- enrollment_guide: 入会方法の案内 + 特典がある場合はその紹介
-- follow_up: 未入会の理由を推測し、不安を解消するメッセージ
-- survey: シンプルなアンケート依頼（満足度 + 改善点）
+### 方針
+- thank_you: お礼 + ヒアリング踏まえた一言
+- enrollment_guide: 入会案内。押し売りしない
+- follow_up: 不安解消メッセージ
+- survey: アンケート依頼
 
-### 応答フォーマット
-{
-  "reply_message": "ユーザーに送るメッセージ（200文字以内）",
-  "insight": "フォローから得られた追加インサイト"
-}
+### 応答フォーマット（JSON以外出力禁止）
+{ "reply_message": "（200文字以内）", "insight": "追加インサイト", "escalate_to_human": false }
 `.trim();
 }
 ```
 
 ---
 
-## AIガードレール実装
+## ガードレール実装
 
 ```typescript
 // guards/ai-guardrails.ts
-
-interface GuardrailResult {
-  passed: boolean;
-  violations: string[];
-  sanitized_message?: string;
-}
-
 export class AIGuardrails {
-  private tenant: Tenant;
-
-  // 全テナント共通の禁止パターン
-  private static UNIVERSAL_FORBIDDEN = [
-    /\d{1,3}[,，]\d{3}円/,          // 金額パターン（例: 300,000円）
-    /\d+万円/,                       // 金額パターン（例: 30万円）
-    /月額\d+/,                       // 月額パターン
-    /絶対[にう]/,                    // 断定表現
-    /保証(し|する|します)/,
-    /確実[にな]/,
-    /必ず[a-zA-Zぁ-ん]/,
-    /100\s*[%％]/,
+  private static UNIVERSAL: Array<{ pattern: RegExp; desc: string }> = [
+    { pattern: /\d{1,3}[,，]\d{3}円/, desc: '金額（300,000円等）' },
+    { pattern: /\d+万円/, desc: '金額（30万円等）' },
+    { pattern: /月額\d+/, desc: '月額表記' },
+    { pattern: /\d+円/, desc: '円表記' },
+    { pattern: /絶対/, desc: '「絶対」' },
+    { pattern: /保証/, desc: '「保証」' },
+    { pattern: /確実/, desc: '「確実」' },
+    { pattern: /必ず/, desc: '「必ず」' },
+    { pattern: /100\s*[%％]/, desc: '「100%」' },
   ];
 
-  /**
-   * AI生成メッセージを送信前にチェック
-   * 違反があれば再生成を要求、3回失敗したら人間に引き継ぎ
-   */
-  async validate(message: string): Promise<GuardrailResult> {
+  validate(message: string, tenant: Tenant): { passed: boolean; violations: string[] } {
     const violations: string[] = [];
-
-    // 1. 全テナント共通チェック
-    for (const pattern of AIGuardrails.UNIVERSAL_FORBIDDEN) {
-      if (pattern.test(message)) {
-        violations.push(`禁止パターン検出: ${pattern.source}`);
-      }
+    for (const { pattern, desc } of AIGuardrails.UNIVERSAL) {
+      if (pattern.test(message)) violations.push(desc);
     }
-
-    // 2. テナント固有の禁止表現チェック
-    for (const expr of this.tenant.guardrail_config.forbidden_expressions) {
-      if (message.includes(expr)) {
-        violations.push(`テナント禁止表現: ${expr}`);
-      }
+    for (const expr of tenant.guardrail_config.forbidden_expressions || []) {
+      if (message.includes(expr)) violations.push(`禁止: ${expr}`);
     }
-
-    // 3. テナント固有の禁止トピックチェック（キーワードベース）
-    for (const topic of this.tenant.guardrail_config.forbidden_topics) {
-      if (message.includes(topic)) {
-        violations.push(`禁止トピック: ${topic}`);
-      }
+    for (const topic of tenant.guardrail_config.forbidden_topics || []) {
+      if (message.includes(topic)) violations.push(`禁止トピック: ${topic}`);
     }
-
-    return {
-      passed: violations.length === 0,
-      violations,
-    };
+    return { passed: violations.length === 0, violations };
   }
+  // validateWithRetry: 違反時はフィードバック付きで再生成（最大3回）
 }
 ```
 
 ---
 
-## LINE Messaging API 実装
+## LINE実装
 
-### Webhook受信
+### Webhook + Queue
 
 ```typescript
-// routes/webhook.ts（Hono）
-
-import { Hono } from 'hono';
-import type { Env } from '../types';
-
-const webhook = new Hono<{ Bindings: Env }>();
-
+// routes/webhook.ts
 webhook.post('/webhook/:tenantId', async (c) => {
-  const tenantId = c.req.param('tenantId');
-  const tenant = await getTenant(tenantId, c.env);
-
-  // 1. 署名検証（LINE Channel Secretで）
+  const tenant = await getTenant(c.req.param('tenantId'), c.env);
+  if (!tenant?.is_active) return c.text('Not found', 404);
   const body = await c.req.text();
-  const signature = c.req.header('x-line-signature') || '';
-  if (!verifySignature(body, signature, tenant.line_channel_secret)) {
+  if (!verifySignature(body, c.req.header('x-line-signature') || '', tenant.line_channel_secret)) {
     return c.text('Invalid signature', 401);
   }
-
-  // 2. まず200を即返し、重い処理はQueueに投げる（LINE 30秒制限対策）
-  const events = JSON.parse(body).events;
-  await c.env.MESSAGE_QUEUE.send({
-    tenantId,
-    events,
-  });
-
+  const events = JSON.parse(body).events || [];
+  if (events.length > 0) {
+    await c.env.MESSAGE_QUEUE.send({ tenantId: tenant.id, events, receivedAt: new Date().toISOString() });
+  }
   return c.text('OK', 200);
 });
 
-export default webhook;
-```
-
-### Queue コンシューマー（非同期処理）
-
-```typescript
-// services/queue-handler.ts
-// LINE Webhookから受け取ったイベントを非同期で処理する
-// Cloudflare Queuesのコンシューマーとして動作
-
+// services/queue-handler.ts — 冪等性保証付き
 export async function handleQueueMessage(batch: MessageBatch<QueuePayload>, env: Env) {
   for (const message of batch.messages) {
-    const { tenantId, events } = message.body;
-    const tenant = await getTenant(tenantId, env);
-
-    for (const event of events) {
-      try {
+    try {
+      for (const event of message.body.events) {
+        const eventId = `${event.source.userId}-${event.timestamp}`;
+        if (await isAlreadyProcessed(eventId, env)) continue;
         switch (event.type) {
-          case 'follow':
-            // 友だち追加 → ユーザー登録 + シナリオ開始
-            await handleFollow(tenant, event, env);
-            break;
-          case 'message':
-            // メッセージ受信 → FlowEngineに渡す
-            await handleMessage(tenant, event, env);
-            break;
-          case 'postback':
-            // ボタン押下（予約日程選択等）→ 予約処理
-            await handlePostback(tenant, event, env);
-            break;
+          case 'follow': await handleFollow(/*...*/); break;
+          case 'unfollow': await handleUnfollow(/*...*/); break; // ★ ブロック処理
+          case 'message': await handleMessage(/*...*/); break;
+          case 'postback': await handlePostback(/*...*/); break;
         }
-        message.ack();
-      } catch (error) {
-        console.error(`Event processing failed: ${error}`);
-        message.retry();  // 失敗したら自動リトライ
+        await markProcessed(eventId, env);
       }
-    }
+      message.ack();
+    } catch (error) { message.retry(); }
   }
 }
 ```
 
-### 予約日程選択 Flex Message
+### LINE送信（reply / push）
+
+```typescript
+// services/line.ts
+// reply: 無料だが30秒で失効。MVP ではAI生成メッセージはすべてpush
+// push: 有料。いつでも送れる。AI生成・遅延・リマインド用
+export async function pushMessage(tenant: Tenant, userId: string, text: string) { /*...*/ }
+export async function pushFlexMessage(tenant: Tenant, userId: string, flex: any, alt: string) { /*...*/ }
+```
+
+### 予約（楽観的ロック）
 
 ```typescript
 // services/booking.ts
-
-export function buildBookingFlexMessage(slots: AvailableSlot[]): FlexMessage {
-  // 空き枠をカルーセル形式のFlex Messageで表示
-  // 各枠にpostbackアクション付きのボタンをつける
-  // postback data: "book:${slotId}"
-  return {
-    type: 'flex',
-    altText: '日程を選択してください',
-    contents: {
-      type: 'carousel',
-      contents: slots.map(slot => ({
-        type: 'bubble',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            { type: 'text', text: formatDate(slot.start_at), weight: 'bold', size: 'lg' },
-            { type: 'text', text: `${formatTime(slot.start_at)} 〜 ${formatTime(slot.end_at)}`, size: 'md', color: '#666666' },
-            { type: 'text', text: `残り${slot.max_bookings - slot.current_bookings}枠`, size: 'sm', color: '#FF6B6B' }
-          ]
-        },
-        footer: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            {
-              type: 'button',
-              action: { type: 'postback', label: 'この日程で予約する', data: `book:${slot.id}` },
-              style: 'primary',
-              color: '#4CAF50'
-            }
-          ]
-        }
-      }))
-    }
-  };
+// available_slots.version で楽観的ロック → 同時予約の競合防止
+async function incrementSlotBooking(slotId: string, expectedVersion: number, env: Env): Promise<boolean> {
+  const { data } = await supabase(env).from('available_slots')
+    .update({ current_bookings: sql`current_bookings + 1`, version: expectedVersion + 1 })
+    .eq('id', slotId).eq('version', expectedVersion).select();
+  return data && data.length > 0;
 }
 ```
 
 ---
 
-## スケジューラ設計
+## スケジューラ
 
 ```typescript
 // services/scheduler.ts
-// Cloudflare Cron Triggers で実行される定期処理
-// wrangler.toml の [triggers] で cron = ["* * * * *"]（毎分）を設定
-
-export async function handleScheduled(
-  controller: ScheduledController,
-  env: Env
-) {
-  const now = new Date(controller.scheduledTime);
-
-  await Promise.all([
-    processDelayedSteps(env, now),     // delay待ちのシナリオステップ
-    processReminders(env, now),        // 予約リマインド
-    processFollowUps(env, now),        // 追客メッセージ
-    processPostConsultation(env, now), // 相談後フォロー
+export async function handleScheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  await Promise.allSettled([
+    processScheduledActions(env), // lock_pending_actions RPC → 実行 → completed/retry
+    detectNoShows(env),           // 予約時刻+30分 → no_show → フォロー登録
   ]);
 }
-}
-
-async function processReminders() {
-  // 1. 3日前・前日・1時間前のリマインド対象bookingを取得
-  // 2. テナントのreminder設定に従い、templateまたはAIでメッセージ生成
-  // 3. 送信 + reminded_at更新
-  // 4. ノーショー検知（予約時間を過ぎてstatus=confirmedのまま → no_showに変更 + フォロー）
-}
-
-async function processFollowUps() {
-  // 1. status=active かつ last_response_at が一定時間以上前のユーザーを取得
-  // 2. follow_up_count < max_attempts のユーザーのみ対象
-  // 3. AI判断モードの場合はClaude APIに「今送るべきか？」を判断させる
-  // 4. 送信 + follow_up_countインクリメント
-}
+// 排他制御: Supabase RPC lock_pending_actions() で FOR UPDATE SKIP LOCKED
 ```
 
 ---
 
-## 開発フェーズ（1週間計画）
+## 開発フェーズ（1週間）
 
-### フェーズ1（Day 1-2）: 基盤構築
-- [ ] プロジェクト初期化（`npm create cloudflare` + Hono + TypeScript + Supabase）
-- [ ] wrangler.toml設定（KV, Queues, Cron Triggers, nodejs_compat）
-- [ ] Cloudflare KV / Queues の作成（`wrangler kv:namespace create`, `wrangler queues create`）
-- [ ] DB マイグレーション実行（全テーブル作成）
-- [ ] LINE Webhook受信 + 署名検証 + Queue送信
-- [ ] Queue Consumer の基本実装
-- [ ] テナント設定JSONの読み込み機構（KVキャッシュ含む）
-- [ ] 友だち追加イベント → ユーザー登録 + welcomeメッセージ送信
-- [ ] `wrangler dev` でローカル動作確認（ngrokでLINE Webhook接続）
+### フェーズ1（Day 1-2）: 基盤
+- [ ] `npm create cloudflare` + Hono + TypeScript
+- [ ] `src/types.ts`（Env, QueuePayload, LineWebhookEvent）
+- [ ] wrangler.toml（KV, Queues, Cron, `compatibility_flags = ["nodejs_compat"]`）
+- [ ] KV/Queues作成（wrangler CLI）
+- [ ] Supabase: 全テーブル + ビュー + RPC + インデックス
+- [ ] supabase.ts / datetime.ts / idempotency.ts / logger.ts
+- [ ] line.ts（reply/push/flex）
+- [ ] Webhook受信 → 署名検証 → Queue送信 → 200即返却
+- [ ] Queue Consumer（冪等性チェック）
+- [ ] follow/unfollowハンドリング
+- [ ] テナント設定JSON → DB → KVキャッシュ
+- [ ] `wrangler dev` + ngrokでE2E確認
 
-### フェーズ2（Day 3-4）: シナリオエンジン + AI会話
-- [ ] FlowEngine実装（状態遷移管理）
-- [ ] テンプレートメッセージ送信（delay対応含む）
-- [ ] Claude API連携 + システムプロンプト構築
-- [ ] AIヒアリング会話（構造化データ抽出含む）
-- [ ] AIガードレール実装 + バリデーション
-- [ ] 会話ログ保存
+### フェーズ2（Day 3-4）: シナリオ + AI
+- [ ] FlowEngine（状態遷移 + advanceStep + scheduled_actions登録）
+- [ ] テンプレートメッセージ送信（delay → scheduled_actions経由）
+- [ ] ai.ts（会話履歴構築 + Claude API呼び出し + JSONパース + リトライ）
+- [ ] 全プロンプト実装（system-base, hearing, follow-up, post-consultation）
+- [ ] ヒアリング会話（extracted_data保存 + insight更新 + 完了判定）
+- [ ] ガードレール（validate + validateWithRetry）
+- [ ] 会話ログ保存 + 非テキストメッセージ対応
 
 ### フェーズ3（Day 5）: 予約 + リマインド
-- [ ] 予約枠管理（available_slots CRUD）
-- [ ] Flex Messageでの日程選択UI
-- [ ] Postbackハンドリング → 予約確定処理
-- [ ] Cloudflare Cron Triggers設定（wrangler.toml）
-- [ ] 前日・当日リマインド送信
+- [ ] 予約枠CRUD
+- [ ] Flex Message日程選択UI
+- [ ] Postback → 楽観的ロック付き予約確定
+- [ ] 予約確定 → リマインドscheduled_actions一括登録
+- [ ] Cron Trigger → lock_pending_actions RPC → 排他実行
+- [ ] リマインド（テンプレート + AIパーソナライズド）
+- [ ] ノーショー自動検知
 
-### フェーズ4（Day 6）: 追客 + 相談後フォロー
-- [ ] 未返信ユーザー検出 + 追客メッセージ送信
-- [ ] AI判断追客（タイミング・内容の自動決定）
-- [ ] 相談後フォローアクション（お礼・入会案内・追客・アンケート）
-- [ ] ノーショー検知 + 再予約誘導
+### フェーズ4（Day 6）: 追客 + フォロー + 通知
+- [ ] 追客プロンプト + 回数別トーン
+- [ ] AI判断追客（推奨タイミングでscheduled_actions登録）
+- [ ] stalled → 人間エスカレーション + pending actions一括cancel
+- [ ] 相談後フォロー4アクション
+- [ ] notification.ts（スタッフへLINE push通知）
+- [ ] ファネル分析ビュー動作確認
 
 ### フェーズ5（Day 7）: テスト + デプロイ
-- [ ] テスト顧客用の設定JSON作成
-- [ ] `wrangler deploy` でCloudflare Workersにデプロイ
-- [ ] Cloudflare KV / Queues のバインディング設定
-- [ ] LINE Webhook URLの設定
-- [ ] エンドツーエンドの動作テスト（友だち追加→ヒアリング→予約→リマインド→相談後フォロー）
-- [ ] エラーハンドリング・ログ確認
-- [ ] テスト顧客へ引き渡し
+- [ ] テスト顧客用JSON作成
+- [ ] `wrangler deploy` + `wrangler secret put`
+- [ ] LINE DevelopersでWebhook URL設定
+- [ ] E2E: follow → education → hearing → booking → remind → consult → follow-up
+- [ ] 異常系: unfollow/再follow, 二重送信, 満席予約, ガードレール違反
+- [ ] ノーショー検知テスト
+- [ ] `wrangler tail` でログ監視
+- [ ] テスト顧客引き渡し
 
 ---
 
@@ -939,17 +816,15 @@ async function processFollowUps() {
 name = "line-attend-agent"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
-# Cron Triggers（毎分実行）
 [triggers]
 crons = ["* * * * *"]
 
-# KV Namespace（テナント設定キャッシュ）
 [[kv_namespaces]]
 binding = "TENANT_CACHE"
 id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
-# Queue（非同期メッセージ処理）
 [[queues.producers]]
 queue = "line-events"
 binding = "MESSAGE_QUEUE"
@@ -958,99 +833,73 @@ binding = "MESSAGE_QUEUE"
 queue = "line-events"
 max_batch_size = 10
 max_retries = 3
+dead_letter_queue = "line-events-dlq"
 ```
 
-### .dev.vars（ローカル開発用シークレット）
-
-```env
-# Supabase
+### .dev.vars
+```
 SUPABASE_URL=https://xxxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJxxxxx
-
-# Anthropic
 ANTHROPIC_API_KEY=sk-ant-xxxxx
-
-# LINE（テナントごとにDBで管理するが、デフォルトテナント用）
-DEFAULT_LINE_CHANNEL_SECRET=xxxxx
-DEFAULT_LINE_CHANNEL_ACCESS_TOKEN=xxxxx
 ```
 
-### 本番シークレット（wrangler secret で設定）
-
+### 本番
 ```bash
 wrangler secret put SUPABASE_URL
 wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 wrangler secret put ANTHROPIC_API_KEY
-wrangler secret put DEFAULT_LINE_CHANNEL_SECRET
-wrangler secret put DEFAULT_LINE_CHANNEL_ACCESS_TOKEN
 ```
 
 ---
 
-## 実装上の重要な注意点
+## 実装注意点
 
-### 1. Cloudflare Workers固有の制約
-- **CPU時間制限**: 無料プランは10ms、有料プランは30秒。Claude API呼び出しは待機時間（I/O）なのでCPU時間にはカウントされないが、重い同期処理は避ける
-- **メモリ**: 128MB。会話履歴は毎回DBから取得し、Worker内にキャッシュしない
-- **Node.js互換性**: `node:crypto` 等の一部Node.js APIは使える（`nodejs_compat` フラグが必要）。wrangler.tomlに `compatibility_flags = ["nodejs_compat"]` を追加すること
-- **外部パッケージ**: npm パッケージは使えるが、Node.js固有のAPI（fs, path等）に依存するものは動かない。Supabase JS Client (`@supabase/supabase-js`) はWorkers対応済みなので問題なし
+### 1. Cloudflare Workers
+- CPU時間: 有料30秒。Claude APIはI/Oなのでカウントされない
+- メモリ128MB。会話履歴は毎回DB取得
+- `compatibility_flags = ["nodejs_compat"]` 必須（署名検証のcreateHmac用）
+- Supabase JS ClientはREST API経由なのでコネクションプーリング不要
 
-### 2. LINE Messaging APIの制約
-- **応答トークン**: Webhookの応答は30秒以内に返す必要がある。Cloudflare Queuesを使い、Webhook受信時は即200を返してイベント処理はQueue経由で非同期実行する（この構成は既にWebhookルートに組み込み済み）
-- **月間メッセージ数**: 無料プランは月200通。テスト段階でも気をつける。本番は有料プラン推奨
-- **Flex Message**: JSON構造が複雑。LINE Flex Message Simulatorで事前確認すること
-- **署名検証**: `node:crypto` の `createHmac` を使用。`nodejs_compat` フラグが必要
+### 2. LINE API
+- reply token: Queue非同期処理では失効リスク → MVPはすべてpush message
+- push message: 有料プラン必須。テナント顧客に説明
+- Flex Message: LINE Flex Message Simulatorで事前確認
 
-### 3. Claude APIの使い方
-- **temperature**: ヒアリング時は0.3（正確さ重視）、追客時は0.7（創造性重視）
-- **max_tokens**: 300程度で十分（LINEメッセージは短い）
-- **応答のparse**: JSON形式で返すようシステムプロンプトで指示し、パース失敗時はリトライ（最大3回）
+### 3. Claude API
+- **会話履歴必須**: 直近20件をmessages配列に含める
+- temperature: ヒアリング0.3 / 追客0.7
+- max_tokens: 400
+- JSONパース: フェンス除去→parse→失敗時リトライ（exponential backoff）
+- コスト: 1メッセージ約$0.003〜$0.01
 
-### 4. マルチテナントの分離
-- すべてのDBクエリにtenant_idのWHERE句を含めること
-- LINE Webhook URLはテナントごとに `/webhook/:tenantId` で分ける
-- テナント設定はCloudflare KVにキャッシュ（TTL: 5分）。設定更新時はKVをパージ
-- 将来Supabase RLSを入れる前提で、今からtenant_idカラムを全テーブルに入れておく
+### 4. マルチテナント
+- 全クエリにtenant_id WHERE句
+- テナント設定はKVキャッシュ（TTL: 5分）
+- 将来RLS対応のためtenant_idは全テーブルに
 
 ### 5. エラーハンドリング
-- Claude API失敗時: テンプレートメッセージにフォールバック
-- LINE API失敗時: Cloudflare Queuesの自動リトライ（max_retries: 3）に任せる
-- 想定外のユーザー入力: AIで意図解釈を試みる → 失敗したら「すみません、もう少し詳しく教えていただけますか？」
+- Claude失敗 → テンプレートフォールバック
+- LINE失敗 → Queuesリトライ + Dead Letter Queue
+- スケジュール失敗 → attempts管理 + max到達でスタッフ通知
+- 全エラー → 構造化JSONログ（`wrangler tail`監視）
 
-### 6. Workers エントリーポイント構成
+### 6. エントリーポイント
 
 ```typescript
 // src/index.ts
-
-import { Hono } from 'hono';
-import webhook from './routes/webhook';
-import health from './routes/health';
-import { handleScheduled } from './services/scheduler';
-import { handleQueueMessage } from './services/queue-handler';
-
-const app = new Hono<{ Bindings: Env }>();
-
-app.route('/', webhook);
-app.route('/', health);
-
 export default {
-  // HTTP リクエスト処理（Webhook受信）
-  fetch: app.fetch,
-
-  // Cron Trigger（毎分: リマインド・追客・フォロー）
-  scheduled: handleScheduled,
-
-  // Queue Consumer（LINE Webhook非同期処理）
-  queue: handleQueueMessage,
+  fetch: app.fetch,           // Webhook
+  scheduled: handleScheduled, // Cron（毎分）
+  queue: handleQueueMessage,  // Queue Consumer
 };
 ```
 
 ---
 
-## このプロンプトの使い方（Claude Codeへの指示）
+## 使い方
 
-1. **このファイルを最初にClaude Codeに読み込ませてください**
-2. 「フェーズ1から順番に実装してください」と指示してください
-3. 各フェーズ完了後に動作確認してから次のフェーズに進んでください
-4. テナント設定JSONの `example-school.json` は、テスト顧客のスクール情報に合わせて調整してください
-5. 不明点があればClaude Codeに「このセクションの意図は？」と聞けば、このドキュメント内の設計意図を参照して答えてくれます
+1. このファイルをClaude Codeに読み込ませる
+2. 「フェーズ1から順番に実装してください」と指示
+3. 各フェーズ完了後に動作確認してから次へ
+4. Supabase RPC `lock_pending_actions` はフェーズ3開始時にSQLエディタで作成
+5. テスト顧客のJSON設定は引き渡し前にカスタマイズ

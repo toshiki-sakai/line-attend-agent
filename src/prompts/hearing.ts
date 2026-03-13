@@ -4,34 +4,32 @@ export function buildHearingPrompt(tenant: Tenant, endUser: EndUser): string {
   const items = tenant.hearing_config?.items || [];
   const collected = endUser.hearing_data || {};
   const remaining = items.filter((item) => !collected[item.id]);
+  const requiredRemaining = remaining.filter((item) => item.required);
 
   return `
-## 今の目的: ヒアリング
+## 目的: ヒアリング
+自然な会話で以下の情報を収集。尋問にならないこと。
 
-以下の項目をユーザーとの自然な会話の中で収集してください。
-尋問のように聞くのではなく、相手の話に共感しながら自然に引き出してください。
-
-### 未収集の項目（優先度順）
+### 未収集（優先度順）
 ${remaining.map((item) => `- ${item.question_hint}（ID: ${item.id}, 必須: ${item.required}）`).join('\n')}
 
-### 収集済みの項目
-${Object.entries(collected).map(([key, value]) => `- ${key}: ${value}`).join('\n') || 'なし'}
+### 収集済み
+${Object.entries(collected).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'なし'}
 
-### 応答フォーマット
-以下のJSON形式で応答してください:
+### 完了条件: 必須残り${requiredRemaining.length}件 → 0になったらis_hearing_complete=true
+
+### 応答フォーマット（JSON以外出力禁止）
 {
-  "reply_message": "ユーザーに送るメッセージ（150文字以内）",
-  "extracted_data": {
-    "項目ID": "抽出した内容"
-  },
-  "insight": "この会話から読み取れるユーザーのインサイト（内部メモ）",
-  "is_hearing_complete": false
+  "reply_message": "（150文字以内）",
+  "extracted_data": { "項目ID": "抽出内容" },
+  "insight": "内部メモ",
+  "is_hearing_complete": false,
+  "escalate_to_human": false
 }
 
-### 重要
-- extracted_dataにはこの会話ターンで新しく抽出できた情報のみ入れる
-- 無理に全項目を1回で聞かない。1ターン1質問
-- ユーザーが話したいことがあれば、それを優先して聞く
-- 必須項目がすべて収集できたらis_hearing_completeをtrueにする
+### ルール
+- extracted_data: このターンで新規抽出分のみ。なければ {}
+- 1ターン1質問。曖昧な回答は深掘り
+- ユーザーが話したいことを優先
 `.trim();
 }

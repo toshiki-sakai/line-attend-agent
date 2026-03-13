@@ -1,361 +1,417 @@
-import type { Env, Tenant, EndUser, FlowContext, ScenarioStep } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, ScheduledAction } from '../types';
 import { getSupabaseClient } from '../utils/supabase';
 import { FlowEngine } from './flow-engine';
-import { generateFollowUpResponse, generatePostConsultationResponse } from './ai';
-import { sendTextMessage } from './line';
+import { generateFollowUpResponse, generatePostConsultationResponse, getConversationHistory } from './ai';
+import { pushMessage } from './line';
 import { validateMessage } from '../guards/ai-guardrails';
+import { notifyStaff } from './notification';
+import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
+
+const NO_SHOW_THRESHOLD_MINUTES = 30;
 
 export async function handleScheduled(
   controller: ScheduledController,
-  env: Env
+  env: Env,
+  ctx: ExecutionContext
 ): Promise<void> {
-  const now = new Date(controller.scheduledTime);
-
-  await Promise.all([
-    processDelayedSteps(env, now),
-    processReminders(env, now),
-    processFollowUps(env, now),
-    processPostConsultation(env, now),
+  await Promise.allSettled([
+    processScheduledActions(env),
+    detectNoShows(env),
   ]);
 }
 
-async function processDelayedSteps(env: Env, now: Date): Promise<void> {
+async function processScheduledActions(env: Env): Promise<void> {
   const supabase = getSupabaseClient(env);
+
+  // 排他ロック付きで pending アクションを取得
+  const { data: actions, error } = await supabase.rpc('lock_pending_actions', {
+    batch_size: 20,
+    lock_duration: '5 minutes',
+  });
+
+  if (error || !actions || actions.length === 0) return;
+
   const flowEngine = new FlowEngine(env);
 
-  // delay待ちのユーザーを取得（last_message_atが現在時刻以前のもの）
-  const { data: users } = await supabase
-    .from('end_users')
-    .select('*, tenants!inner(*)')
-    .lte('last_message_at', now.toISOString())
-    .eq('status', 'active')
-    .not('last_message_at', 'is', null);
-
-  if (!users || users.length === 0) return;
-
-  for (const userData of users) {
+  for (const action of actions as ScheduledAction[]) {
     try {
-      const tenant = userData.tenants as unknown as Tenant;
-      const endUser = userData as unknown as EndUser;
-      const steps = tenant.scenario_config?.steps || [];
-      const currentStep = steps.find((s: ScenarioStep) => s.id === endUser.current_step);
-
-      if (!currentStep) continue;
-
-      // auto trigger + delay_minutes > 0 のステップを実行
-      if (currentStep.trigger === 'auto' && currentStep.delay_minutes > 0) {
-        await flowEngine.executeStep(tenant, endUser, currentStep);
-
-        // last_message_atをクリア
-        await supabase
-          .from('end_users')
-          .update({ last_message_at: null, updated_at: now.toISOString() })
-          .eq('id', endUser.id);
-      }
+      await executeAction(action, env, flowEngine);
+      await supabase
+        .from('scheduled_actions')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', action.id);
     } catch (error) {
-      logger.error('Failed to process delayed step', {
-        userId: userData.id,
+      const attempts = action.attempts + 1;
+      const status = attempts >= action.max_attempts ? 'failed' : 'pending';
+
+      await supabase
+        .from('scheduled_actions')
+        .update({
+          status,
+          attempts,
+          last_error: String(error),
+          locked_until: null,
+        })
+        .eq('id', action.id);
+
+      if (status === 'failed') {
+        await handleActionFailure(action, env);
+      }
+
+      logger.error('Scheduled action failed', {
+        actionId: action.id,
+        actionType: action.action_type,
+        attempts,
         error: String(error),
       });
     }
   }
 }
 
-async function processReminders(env: Env, now: Date): Promise<void> {
+async function executeAction(
+  action: ScheduledAction,
+  env: Env,
+  flowEngine: FlowEngine
+): Promise<void> {
   const supabase = getSupabaseClient(env);
 
-  // リマインド対象のbookingを取得
-  const { data: bookings } = await supabase
+  const { data: endUser } = await supabase
+    .from('end_users')
+    .select('*')
+    .eq('id', action.end_user_id)
+    .single();
+
+  if (!endUser || endUser.is_blocked) return;
+
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('*')
+    .eq('id', action.tenant_id)
+    .eq('is_active', true)
+    .single();
+
+  if (!tenant) return;
+
+  switch (action.action_type) {
+    case 'scenario_step':
+      await executeScenarioStep(action, tenant as Tenant, endUser as EndUser, env, flowEngine);
+      break;
+    case 'reminder':
+      await executeReminder(action, tenant as Tenant, endUser as EndUser, env);
+      break;
+    case 'follow_up':
+      await executeFollowUp(action, tenant as Tenant, endUser as EndUser, env);
+      break;
+    case 'post_consultation':
+      await executePostConsultation(action, tenant as Tenant, endUser as EndUser, env);
+      break;
+  }
+}
+
+async function executeScenarioStep(
+  action: ScheduledAction,
+  tenant: Tenant,
+  endUser: EndUser,
+  env: Env,
+  flowEngine: FlowEngine
+): Promise<void> {
+  const stepId = action.action_payload.step_id as string;
+  const step = tenant.scenario_config?.steps?.find((s) => s.id === stepId);
+  if (!step) return;
+
+  await flowEngine.executeStep(tenant, endUser, step, env);
+}
+
+async function executeReminder(
+  action: ScheduledAction,
+  tenant: Tenant,
+  endUser: EndUser,
+  env: Env
+): Promise<void> {
+  const payload = action.action_payload;
+  const reminderType = payload.reminder_type as string;
+  const reminderContent = payload.reminder_content as string | undefined;
+  const bookingId = payload.booking_id as string;
+
+  const supabase = getSupabaseClient(env);
+  const { data: booking } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', bookingId)
+    .eq('status', 'confirmed')
+    .single();
+
+  if (!booking) return;
+
+  let message: string;
+
+  if (reminderType === 'template' && reminderContent) {
+    message = reminderContent
+      .replace(/{zoom_url}/g, booking.zoom_url || '')
+      .replace(/{booking_date}/g, formatDateJST(booking.scheduled_at))
+      .replace(/{booking_time}/g, formatTimeJST(booking.scheduled_at));
+  } else {
+    const history = await getConversationHistory(endUser.id, tenant.id, env);
+    const context: FlowContext = {
+      tenant,
+      endUser,
+      currentStep: { id: 'reminder', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
+      hearingData: endUser.hearing_data || {},
+      conversationHistory: history,
+      env,
+    };
+    const response = await generatePostConsultationResponse(context, 'personalized_remind');
+    message = response.reply_message;
+  }
+
+  const guardrailResult = validateMessage(message, tenant);
+  if (guardrailResult.passed) {
+    await pushMessage(tenant, endUser.line_user_id, message);
+  }
+
+  await supabase
+    .from('bookings')
+    .update({
+      reminded_at: new Date().toISOString(),
+      reminder_count: booking.reminder_count + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', bookingId);
+}
+
+async function executeFollowUp(
+  action: ScheduledAction,
+  tenant: Tenant,
+  endUser: EndUser,
+  env: Env
+): Promise<void> {
+  const followUpConfig = tenant.reminder_config?.no_response_follow_up;
+  if (!followUpConfig?.enabled) return;
+
+  if (endUser.follow_up_count >= followUpConfig.max_attempts) {
+    await handleMaxFollowUpReached(tenant, endUser, followUpConfig.escalation_message, env);
+    return;
+  }
+
+  const history = await getConversationHistory(endUser.id, tenant.id, env);
+  const context: FlowContext = {
+    tenant,
+    endUser,
+    currentStep: { id: 'follow_up', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
+    hearingData: endUser.hearing_data || {},
+    conversationHistory: history,
+    env,
+  };
+
+  const response = await generateFollowUpResponse(context);
+
+  if (response.escalate_to_human) {
+    await handleMaxFollowUpReached(tenant, endUser, followUpConfig.escalation_message, env);
+    return;
+  }
+
+  const guardrailResult = validateMessage(response.reply_message, tenant);
+  if (guardrailResult.passed) {
+    await pushMessage(tenant, endUser.line_user_id, response.reply_message);
+  }
+
+  const supabase = getSupabaseClient(env);
+  await supabase
+    .from('end_users')
+    .update({
+      follow_up_count: endUser.follow_up_count + 1,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', endUser.id);
+
+  await supabase.from('conversations').insert({
+    end_user_id: endUser.id,
+    tenant_id: tenant.id,
+    role: 'assistant',
+    content: response.reply_message,
+    step_at_time: 'follow_up',
+  });
+
+  // Schedule next follow-up if needed
+  if (response.should_continue_follow_up) {
+    const nextTiming = response.recommended_next_timing_hours || 48;
+    const flowEngine = new FlowEngine(env);
+    await flowEngine.scheduleAction({
+      tenant_id: tenant.id,
+      end_user_id: endUser.id,
+      action_type: 'follow_up',
+      action_payload: {},
+      execute_at: new Date(Date.now() + nextTiming * 60 * 60 * 1000).toISOString(),
+    });
+  }
+}
+
+async function executePostConsultation(
+  action: ScheduledAction,
+  tenant: Tenant,
+  endUser: EndUser,
+  env: Env
+): Promise<void> {
+  const actionType = action.action_payload.action_type as string;
+  const condition = action.action_payload.condition as string | undefined;
+
+  if (condition === 'status != enrolled' && endUser.status === 'enrolled') return;
+
+  const templateContent = action.action_payload.content as string | undefined;
+  let message: string;
+
+  if (templateContent) {
+    message = templateContent;
+  } else {
+    const history = await getConversationHistory(endUser.id, tenant.id, env);
+    const context: FlowContext = {
+      tenant,
+      endUser,
+      currentStep: { id: 'post_consultation', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
+      hearingData: endUser.hearing_data || {},
+      conversationHistory: history,
+      env,
+    };
+    const response = await generatePostConsultationResponse(context, actionType);
+    message = response.reply_message;
+
+    if (response.insight) {
+      const supabase = getSupabaseClient(env);
+      await supabase
+        .from('end_users')
+        .update({ insight_summary: response.insight, updated_at: new Date().toISOString() })
+        .eq('id', endUser.id);
+    }
+  }
+
+  const guardrailResult = validateMessage(message, tenant);
+  if (guardrailResult.passed) {
+    await pushMessage(tenant, endUser.line_user_id, message);
+  }
+
+  const supabase = getSupabaseClient(env);
+  await supabase.from('conversations').insert({
+    end_user_id: endUser.id,
+    tenant_id: tenant.id,
+    role: 'assistant',
+    content: message,
+    step_at_time: 'post_consultation',
+  });
+}
+
+async function handleMaxFollowUpReached(
+  tenant: Tenant,
+  endUser: EndUser,
+  escalationMessage: string,
+  env: Env
+): Promise<void> {
+  if (endUser.status === 'stalled') return;
+
+  await pushMessage(tenant, endUser.line_user_id, escalationMessage);
+
+  const supabase = getSupabaseClient(env);
+  await supabase
+    .from('end_users')
+    .update({ status: 'stalled', updated_at: new Date().toISOString() })
+    .eq('id', endUser.id);
+
+  // Cancel pending actions
+  await supabase
+    .from('scheduled_actions')
+    .update({ status: 'cancelled' })
+    .eq('end_user_id', endUser.id)
+    .eq('status', 'pending');
+
+  await notifyStaff(tenant, {
+    type: 'stalled',
+    endUser,
+    reason: '追客上限到達',
+  });
+}
+
+async function handleActionFailure(action: ScheduledAction, env: Env): Promise<void> {
+  const supabase = getSupabaseClient(env);
+
+  const { data: tenant } = await supabase
+    .from('tenants')
+    .select('*')
+    .eq('id', action.tenant_id)
+    .single();
+
+  const { data: endUser } = await supabase
+    .from('end_users')
+    .select('*')
+    .eq('id', action.end_user_id)
+    .single();
+
+  if (tenant && endUser) {
+    await notifyStaff(tenant as Tenant, {
+      type: 'error',
+      endUser: endUser as EndUser,
+      reason: `Scheduled action failed after max attempts: ${action.action_type}. Error: ${action.last_error}`,
+    });
+  }
+}
+
+async function detectNoShows(env: Env): Promise<void> {
+  const supabase = getSupabaseClient(env);
+  const threshold = new Date(Date.now() - NO_SHOW_THRESHOLD_MINUTES * 60 * 1000).toISOString();
+
+  const { data: noShowBookings } = await supabase
     .from('bookings')
     .select('*, end_users!inner(*), tenants!inner(*)')
     .eq('status', 'confirmed')
-    .gt('scheduled_at', now.toISOString());
+    .lt('scheduled_at', threshold);
 
-  if (!bookings || bookings.length === 0) return;
+  if (!noShowBookings || noShowBookings.length === 0) return;
 
-  for (const bookingData of bookings) {
+  for (const bookingData of noShowBookings) {
     try {
       const tenant = bookingData.tenants as unknown as Tenant;
       const endUser = bookingData.end_users as unknown as EndUser;
-      const scheduledAt = new Date(bookingData.scheduled_at);
-      const hoursUntil = (scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-      const reminders = tenant.reminder_config?.pre_consultation || [];
+      await supabase
+        .from('bookings')
+        .update({ status: 'no_show', updated_at: new Date().toISOString() })
+        .eq('id', bookingData.id);
 
-      for (const reminder of reminders) {
-        const shouldSend = checkReminderTiming(reminder.timing, hoursUntil, bookingData.reminded_at, now);
-        if (!shouldSend) continue;
+      await pushMessage(
+        tenant,
+        endUser.line_user_id,
+        '今日ご都合が悪かったでしょうか？またお気軽に日程をお選びくださいね😊'
+      );
 
-        let message: string;
+      await supabase
+        .from('end_users')
+        .update({
+          current_step: 'booking_invited',
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', endUser.id);
 
-        if (reminder.type === 'template' && reminder.content) {
-          message = reminder.content
-            .replace(/{zoom_url}/g, bookingData.zoom_url || '')
-            .replace(/{booking_date}/g, formatDate(bookingData.scheduled_at))
-            .replace(/{booking_time}/g, formatTime(bookingData.scheduled_at));
-        } else {
-          // AI生成リマインド
-          const context: FlowContext = {
-            tenant,
-            endUser,
-            currentStep: { id: 'reminder', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
-            hearingData: endUser.hearing_data || {},
-            bookingData: bookingData,
-          };
-          const response = await generatePostConsultationResponse(context, 'personalized_remind', env);
-          message = response.reply_message;
-        }
+      // Cancel remaining reminders for this booking
+      await supabase
+        .from('scheduled_actions')
+        .update({ status: 'cancelled' })
+        .eq('end_user_id', endUser.id)
+        .eq('action_type', 'reminder')
+        .eq('status', 'pending');
 
-        const guardrailResult = validateMessage(message, tenant);
-        if (guardrailResult.passed) {
-          await sendTextMessage(tenant, endUser.line_user_id, message);
-        }
+      await notifyStaff(tenant, {
+        type: 'no_show',
+        endUser,
+        reason: 'ノーショー検知',
+      });
 
-        // reminded_at更新
-        await supabase
-          .from('bookings')
-          .update({
-            reminded_at: now.toISOString(),
-            reminder_count: bookingData.reminder_count + 1,
-            updated_at: now.toISOString(),
-          })
-          .eq('id', bookingData.id);
-      }
-
-      // ノーショー検知（予約時間を過ぎてstatus=confirmedのまま）
-      if (hoursUntil < -1) {
-        await supabase
-          .from('bookings')
-          .update({ status: 'no_show', updated_at: now.toISOString() })
-          .eq('id', bookingData.id);
-
-        await sendTextMessage(
-          tenant,
-          endUser.line_user_id,
-          '今日ご都合が悪かったでしょうか？またお気軽に日程をお選びくださいね😊'
-        );
-
-        // ユーザーをbooking_invitedに戻す
-        await supabase
-          .from('end_users')
-          .update({
-            current_step: 'booking_invited',
-            status: 'active',
-            updated_at: now.toISOString(),
-          })
-          .eq('id', endUser.id);
-      }
+      logger.info('No-show detected', { bookingId: bookingData.id, userId: endUser.id });
     } catch (error) {
-      logger.error('Failed to process reminder', {
+      logger.error('Failed to process no-show', {
         bookingId: bookingData.id,
         error: String(error),
       });
     }
   }
-}
-
-async function processFollowUps(env: Env, now: Date): Promise<void> {
-  const supabase = getSupabaseClient(env);
-
-  // 追客対象ユーザーを取得
-  const { data: users } = await supabase
-    .from('end_users')
-    .select('*, tenants!inner(*)')
-    .eq('status', 'active')
-    .not('last_response_at', 'is', null);
-
-  if (!users || users.length === 0) return;
-
-  for (const userData of users) {
-    try {
-      const tenant = userData.tenants as unknown as Tenant;
-      const endUser = userData as unknown as EndUser;
-      const followUpConfig = tenant.reminder_config?.no_response_follow_up;
-
-      if (!followUpConfig?.enabled) continue;
-      if (endUser.follow_up_count >= followUpConfig.max_attempts) {
-        // 最大回数到達 → エスカレーション
-        if (endUser.status !== 'stalled') {
-          await sendTextMessage(
-            tenant,
-            endUser.line_user_id,
-            followUpConfig.escalation_message
-          );
-          await supabase
-            .from('end_users')
-            .update({ status: 'stalled', updated_at: now.toISOString() })
-            .eq('id', endUser.id);
-        }
-        continue;
-      }
-
-      // 最後の返信からの経過時間チェック
-      const lastResponse = new Date(endUser.last_response_at!);
-      const hoursSinceResponse = (now.getTime() - lastResponse.getTime()) / (1000 * 60 * 60);
-
-      if (hoursSinceResponse < followUpConfig.min_interval_hours) continue;
-
-      const context: FlowContext = {
-        tenant,
-        endUser,
-        currentStep: { id: 'follow_up', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
-        hearingData: endUser.hearing_data || {},
-      };
-
-      const response = await generateFollowUpResponse(context, env);
-
-      if (response.escalate_to_human) {
-        await sendTextMessage(tenant, endUser.line_user_id, followUpConfig.escalation_message);
-        await supabase
-          .from('end_users')
-          .update({ status: 'stalled', updated_at: now.toISOString() })
-          .eq('id', endUser.id);
-        continue;
-      }
-
-      const guardrailResult = validateMessage(response.reply_message, tenant);
-      if (guardrailResult.passed) {
-        await sendTextMessage(tenant, endUser.line_user_id, response.reply_message);
-      }
-
-      await supabase
-        .from('end_users')
-        .update({
-          follow_up_count: endUser.follow_up_count + 1,
-          last_message_at: now.toISOString(),
-          updated_at: now.toISOString(),
-        })
-        .eq('id', endUser.id);
-
-      // 会話ログ保存
-      await supabase.from('conversations').insert({
-        end_user_id: endUser.id,
-        tenant_id: tenant.id,
-        role: 'assistant',
-        content: response.reply_message,
-        step_at_time: 'follow_up',
-      });
-    } catch (error) {
-      logger.error('Failed to process follow-up', {
-        userId: userData.id,
-        error: String(error),
-      });
-    }
-  }
-}
-
-async function processPostConsultation(env: Env, now: Date): Promise<void> {
-  const supabase = getSupabaseClient(env);
-
-  // 送信待ちの相談後フォローアクションを取得
-  const { data: actions } = await supabase
-    .from('post_consultation_actions')
-    .select('*, bookings!inner(*, end_users!inner(*), tenants!inner(*))')
-    .eq('status', 'pending')
-    .lte('scheduled_at', now.toISOString());
-
-  if (!actions || actions.length === 0) return;
-
-  for (const action of actions) {
-    try {
-      const booking = action.bookings;
-      const tenant = booking.tenants as unknown as Tenant;
-      const endUser = booking.end_users as unknown as EndUser;
-
-      // condition チェック
-      if (action.content?.condition) {
-        const condition = action.content.condition as string;
-        if (condition === 'status != enrolled' && endUser.status === 'enrolled') {
-          await supabase
-            .from('post_consultation_actions')
-            .update({ status: 'completed' })
-            .eq('id', action.id);
-          continue;
-        }
-      }
-
-      let message: string;
-
-      if (action.action_type === 'template' && action.content?.text) {
-        message = action.content.text as string;
-      } else {
-        const context: FlowContext = {
-          tenant,
-          endUser,
-          currentStep: { id: 'post_consultation', type: 'ai', trigger: 'auto', delay_minutes: 0, next_step: '' },
-          hearingData: endUser.hearing_data || {},
-          bookingData: booking,
-        };
-        const response = await generatePostConsultationResponse(context, action.action_type, env);
-        message = response.reply_message;
-
-        // インサイト更新
-        if (response.insight) {
-          await supabase
-            .from('end_users')
-            .update({ insight_summary: response.insight, updated_at: now.toISOString() })
-            .eq('id', endUser.id);
-        }
-      }
-
-      const guardrailResult = validateMessage(message, tenant);
-      if (guardrailResult.passed) {
-        await sendTextMessage(tenant, endUser.line_user_id, message);
-      }
-
-      await supabase
-        .from('post_consultation_actions')
-        .update({ status: 'sent' })
-        .eq('id', action.id);
-
-      // 会話ログ保存
-      await supabase.from('conversations').insert({
-        end_user_id: endUser.id,
-        tenant_id: tenant.id,
-        role: 'assistant',
-        content: message,
-        step_at_time: 'post_consultation',
-      });
-    } catch (error) {
-      logger.error('Failed to process post-consultation action', {
-        actionId: action.id,
-        error: String(error),
-      });
-    }
-  }
-}
-
-function checkReminderTiming(
-  timing: string,
-  hoursUntil: number,
-  lastRemindedAt: string | null,
-  now: Date
-): boolean {
-  // 既に最近リマインドした場合はスキップ（1時間以内）
-  if (lastRemindedAt) {
-    const lastReminded = new Date(lastRemindedAt);
-    if (now.getTime() - lastReminded.getTime() < 60 * 60 * 1000) return false;
-  }
-
-  switch (timing) {
-    case '3_days_before':
-      return hoursUntil <= 72 && hoursUntil > 48;
-    case '1_day_before':
-      return hoursUntil <= 24 && hoursUntil > 12;
-    case '1_hour_before':
-      return hoursUntil <= 1 && hoursUntil > 0;
-    default:
-      return false;
-  }
-}
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
-function formatTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }

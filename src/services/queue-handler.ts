@@ -1,10 +1,12 @@
-import type { Env, QueuePayload, Tenant, EndUser, FlowContext, ScenarioStep } from '../types';
+import type { Env, QueuePayload, Tenant, EndUser, FlowContext, LineWebhookEvent } from '../types';
 import { getTenant } from '../config/tenant-config';
 import { getSupabaseClient } from '../utils/supabase';
-import { getProfile } from './line';
+import { getProfile, pushMessage } from './line';
 import { FlowEngine } from './flow-engine';
 import { createBooking } from './booking';
-import { sendTextMessage } from './line';
+import { getConversationHistory } from './ai';
+import { isAlreadyProcessed, markProcessed } from '../utils/idempotency';
+import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
 
 export async function handleQueueMessage(
@@ -25,11 +27,18 @@ export async function handleQueueMessage(
       continue;
     }
 
-    for (const event of events) {
-      try {
+    try {
+      for (const event of events) {
+        const eventId = `${event.source.userId}-${event.timestamp}`;
+
+        if (await isAlreadyProcessed(eventId, env)) continue;
+
         switch (event.type) {
           case 'follow':
             await handleFollow(tenant, event, env, flowEngine);
+            break;
+          case 'unfollow':
+            await handleUnfollow(tenant, event, env);
             break;
           case 'message':
             await handleMessage(tenant, event, env, flowEngine);
@@ -37,37 +46,30 @@ export async function handleQueueMessage(
           case 'postback':
             await handlePostback(tenant, event, env);
             break;
-          default:
-            logger.info('Unhandled event type', { type: event.type });
         }
-      } catch (error) {
-        logger.error('Event processing failed', {
-          eventType: event.type,
-          error: String(error),
-        });
-        message.retry();
-        return;
-      }
-    }
 
-    message.ack();
+        await markProcessed(eventId, tenant.id, env);
+      }
+      message.ack();
+    } catch (error) {
+      logger.error('Event processing failed', { tenantId, error: String(error) });
+      message.retry();
+    }
   }
 }
 
 async function handleFollow(
   tenant: Tenant,
-  event: { source: { userId: string } },
+  event: LineWebhookEvent,
   env: Env,
   flowEngine: FlowEngine
 ): Promise<void> {
   const supabase = getSupabaseClient(env);
   const lineUserId = event.source.userId;
 
-  // プロフィール取得
   const profile = await getProfile(tenant, lineUserId);
   const displayName = profile?.displayName || null;
 
-  // ユーザー登録（既存ならスキップ）
   const { data: existingUser } = await supabase
     .from('end_users')
     .select('id')
@@ -78,12 +80,12 @@ async function handleFollow(
   let endUser: EndUser;
 
   if (existingUser) {
-    // 既存ユーザー: ステップをリセット
     const { data } = await supabase
       .from('end_users')
       .update({
         current_step: 'registered',
         status: 'active',
+        is_blocked: false,
         display_name: displayName,
         updated_at: new Date().toISOString(),
       })
@@ -92,7 +94,6 @@ async function handleFollow(
       .single();
     endUser = data as EndUser;
   } else {
-    // 新規ユーザー
     const { data, error } = await supabase
       .from('end_users')
       .insert({
@@ -101,6 +102,7 @@ async function handleFollow(
         display_name: displayName,
         current_step: 'registered',
         status: 'active',
+        is_blocked: false,
       })
       .select()
       .single();
@@ -114,32 +116,56 @@ async function handleFollow(
 
   logger.info('User followed', { tenantId: tenant.id, lineUserId, displayName });
 
-  // welcomeステップを実行
-  const steps = tenant.scenario_config?.steps || [];
-  const welcomeStep = steps.find((s) => s.trigger === 'follow');
-
+  const welcomeStep = tenant.scenario_config?.steps?.find((s) => s.trigger === 'follow');
   if (welcomeStep) {
-    await flowEngine.executeStep(tenant, endUser, welcomeStep);
+    await flowEngine.executeStep(tenant, endUser, welcomeStep, env);
   }
+}
+
+async function handleUnfollow(
+  tenant: Tenant,
+  event: LineWebhookEvent,
+  env: Env
+): Promise<void> {
+  const supabase = getSupabaseClient(env);
+  const lineUserId = event.source.userId;
+
+  const { data: endUser } = await supabase
+    .from('end_users')
+    .select('id')
+    .eq('tenant_id', tenant.id)
+    .eq('line_user_id', lineUserId)
+    .single();
+
+  if (!endUser) return;
+
+  await supabase
+    .from('end_users')
+    .update({ is_blocked: true, updated_at: new Date().toISOString() })
+    .eq('id', endUser.id);
+
+  // Cancel all pending scheduled actions
+  await supabase
+    .from('scheduled_actions')
+    .update({ status: 'cancelled' })
+    .eq('end_user_id', endUser.id)
+    .eq('status', 'pending');
+
+  logger.info('User unfollowed', { tenantId: tenant.id, lineUserId });
 }
 
 async function handleMessage(
   tenant: Tenant,
-  event: {
-    source: { userId: string };
-    message?: { type: string; text?: string };
-  },
+  event: LineWebhookEvent,
   env: Env,
   flowEngine: FlowEngine
 ): Promise<void> {
-  if (!event.message || event.message.type !== 'text' || !event.message.text) {
-    return;
-  }
+  const messageType = event.message?.type || 'unknown';
+  const messageText = event.message?.text || '';
 
   const supabase = getSupabaseClient(env);
   const lineUserId = event.source.userId;
 
-  // ユーザー取得
   const { data: endUser } = await supabase
     .from('end_users')
     .select('*')
@@ -152,50 +178,35 @@ async function handleMessage(
     return;
   }
 
-  // 現在のステップ取得
   const steps = tenant.scenario_config?.steps || [];
   const currentStep = steps.find((s) => s.id === endUser.current_step);
 
-  if (!currentStep) {
-    // ステップが見つからない場合のフォールバック
-    logger.warn('Current step not found', { step: endUser.current_step });
-    // デフォルトでAI応答
-    const fallbackStep: ScenarioStep = {
-      id: endUser.current_step,
-      type: 'ai',
-      trigger: 'auto',
-      delay_minutes: 0,
-      ai_config: { purpose: 'hearing', max_turns: 6, completion_condition: 'all_items_collected' },
-      next_step: '',
-    };
+  const effectiveStep = currentStep || {
+    id: endUser.current_step,
+    type: 'ai' as const,
+    trigger: 'auto' as const,
+    delay_minutes: 0,
+    ai_config: { purpose: 'hearing' as const, max_turns: 6, completion_condition: 'all_items_collected' },
+    next_step: '',
+  };
 
-    const context: FlowContext = {
-      tenant,
-      endUser: endUser as EndUser,
-      currentStep: fallbackStep,
-      hearingData: endUser.hearing_data || {},
-    };
-
-    await flowEngine.handleUserMessage(context, event.message.text);
-    return;
-  }
+  const conversationHistory = await getConversationHistory(endUser.id, tenant.id, env);
 
   const context: FlowContext = {
     tenant,
     endUser: endUser as EndUser,
-    currentStep,
+    currentStep: effectiveStep,
     hearingData: endUser.hearing_data || {},
+    conversationHistory,
+    env,
   };
 
-  await flowEngine.handleUserMessage(context, event.message.text);
+  await flowEngine.handleUserMessage(context, messageText, messageType);
 }
 
 async function handlePostback(
   tenant: Tenant,
-  event: {
-    source: { userId: string };
-    postback?: { data: string };
-  },
+  event: LineWebhookEvent,
   env: Env
 ): Promise<void> {
   if (!event.postback) return;
@@ -204,44 +215,88 @@ async function handlePostback(
   const supabase = getSupabaseClient(env);
   const lineUserId = event.source.userId;
 
-  // 予約処理
-  if (postbackData.startsWith('book:')) {
-    const slotId = postbackData.replace('book:', '');
+  if (!postbackData.startsWith('book:')) return;
 
-    const { data: endUser } = await supabase
-      .from('end_users')
-      .select('*')
-      .eq('tenant_id', tenant.id)
-      .eq('line_user_id', lineUserId)
-      .single();
+  const slotId = postbackData.replace('book:', '');
 
-    if (!endUser) return;
+  const { data: endUser } = await supabase
+    .from('end_users')
+    .select('*')
+    .eq('tenant_id', tenant.id)
+    .eq('line_user_id', lineUserId)
+    .single();
 
-    const result = await createBooking(tenant.id, endUser.id, slotId, env);
+  if (!endUser) return;
 
-    if (result.success && result.booking) {
-      const booking = result.booking;
-      const scheduledAt = new Date(booking.scheduled_at as string);
-      const dateStr = `${scheduledAt.getMonth() + 1}月${scheduledAt.getDate()}日`;
-      const timeStr = `${scheduledAt.getHours().toString().padStart(2, '0')}:${scheduledAt.getMinutes().toString().padStart(2, '0')}`;
+  const result = await createBooking(tenant.id, endUser.id, slotId, env);
 
-      const message = `ご予約ありがとうございます🎉\n${dateStr}の${timeStr}からZoomでお待ちしています！\n\nZoomリンク: ${booking.zoom_url || '（後ほどご案内します）'}`;
-      await sendTextMessage(tenant, lineUserId, message);
+  if (result.success && result.booking) {
+    const booking = result.booking;
+    const scheduledAt = booking.scheduled_at as string;
+    const dateStr = formatDateJST(scheduledAt);
+    const timeStr = formatTimeJST(scheduledAt);
 
-      // 会話ログ保存
-      await supabase.from('conversations').insert({
-        end_user_id: endUser.id,
-        tenant_id: tenant.id,
-        role: 'assistant',
-        content: message,
-        step_at_time: 'booked',
-      });
-    } else {
-      await sendTextMessage(
-        tenant,
-        lineUserId,
-        result.error || '予約処理中にエラーが発生しました。もう一度お試しください。'
-      );
-    }
+    const message = `ご予約ありがとうございます🎉\n${dateStr}の${timeStr}からZoomでお待ちしています！\n\nZoomリンク: ${booking.zoom_url || '（後ほどご案内します）'}`;
+    await pushMessage(tenant, lineUserId, message);
+
+    await supabase.from('conversations').insert({
+      end_user_id: endUser.id,
+      tenant_id: tenant.id,
+      role: 'assistant',
+      content: message,
+      step_at_time: 'booked',
+    });
+
+    // Schedule reminders for the booking
+    await scheduleBookingReminders(tenant, endUser as EndUser, booking, env);
+  } else {
+    await pushMessage(
+      tenant,
+      lineUserId,
+      result.error || '予約処理中にエラーが発生しました。もう一度お試しください。'
+    );
+  }
+}
+
+async function scheduleBookingReminders(
+  tenant: Tenant,
+  endUser: EndUser,
+  booking: Record<string, unknown>,
+  env: Env
+): Promise<void> {
+  const supabase = getSupabaseClient(env);
+  const scheduledAt = new Date(booking.scheduled_at as string);
+  const reminders = tenant.reminder_config?.pre_consultation || [];
+
+  for (const reminder of reminders) {
+    const executeAt = calculateReminderTime(reminder.timing, scheduledAt);
+    if (!executeAt || executeAt <= new Date()) continue;
+
+    await supabase.from('scheduled_actions').insert({
+      tenant_id: tenant.id,
+      end_user_id: endUser.id,
+      action_type: 'reminder',
+      action_payload: {
+        booking_id: booking.id,
+        reminder_timing: reminder.timing,
+        reminder_type: reminder.type,
+        reminder_content: reminder.content,
+      },
+      execute_at: executeAt.toISOString(),
+      status: 'pending',
+    });
+  }
+}
+
+function calculateReminderTime(timing: string, scheduledAt: Date): Date | null {
+  switch (timing) {
+    case '3_days_before':
+      return new Date(scheduledAt.getTime() - 3 * 24 * 60 * 60 * 1000);
+    case '1_day_before':
+      return new Date(scheduledAt.getTime() - 24 * 60 * 60 * 1000);
+    case '1_hour_before':
+      return new Date(scheduledAt.getTime() - 60 * 60 * 1000);
+    default:
+      return null;
   }
 }

@@ -143,6 +143,11 @@
     "answer_scope": "プログラミング学習とキャリアチェンジに関する一般的な質問のみ回答。政治・宗教・医療・法律相談には回答しない。",
     "human_handoff_trigger": "ユーザーが明確に不満を表明した場合、または3回連続で意図が読み取れない場合"
   },
+  "notification": {
+    "method": "line",
+    "staff_line_user_ids": ["Uxxxxxxxxx"],
+    "notify_on": ["human_handoff", "no_show", "stalled", "error"]
+  },
   "post_consultation": {
     "actions": [
       { "type": "thank_you", "delay_hours": 1, "method": "ai" },

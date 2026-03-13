@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
-import type { Env, Tenant, EndUser, FlowContext } from '../types';
+import type { Env, Tenant, EndUser, FlowContext, AIResponse, ConversationMessage } from '../types';
 import { buildSystemPrompt } from '../prompts/system-base';
 import { buildHearingPrompt } from '../prompts/hearing';
 import { buildFollowUpPrompt } from '../prompts/follow-up';
@@ -7,35 +6,16 @@ import { buildPostConsultationPrompt } from '../prompts/post-consultation';
 import { getSupabaseClient } from '../utils/supabase';
 import { logger } from '../utils/logger';
 
-interface HearingResponse {
-  reply_message: string;
-  extracted_data: Record<string, string>;
-  insight: string;
-  is_hearing_complete: boolean;
-}
+const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const MAX_TOKENS = 400;
+const CONVERSATION_HISTORY_LIMIT = 20;
 
-interface FollowUpResponse {
-  reply_message: string;
-  should_continue_follow_up: boolean;
-  recommended_next_timing_hours: number;
-  escalate_to_human: boolean;
-}
-
-interface PostConsultationResponse {
-  reply_message: string;
-  insight: string;
-}
-
-function getClient(env: Env): Anthropic {
-  return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-}
-
-async function getConversationHistory(
+export async function getConversationHistory(
   endUserId: string,
   tenantId: string,
-  env: Env,
-  limit = 20
-): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  env: Env
+): Promise<ConversationMessage[]> {
   const supabase = getSupabaseClient(env);
   const { data } = await supabase
     .from('conversations')
@@ -44,157 +24,138 @@ async function getConversationHistory(
     .eq('tenant_id', tenantId)
     .in('role', ['user', 'assistant'])
     .order('created_at', { ascending: true })
-    .limit(limit);
+    .limit(CONVERSATION_HISTORY_LIMIT);
 
-  return (data || []) as Array<{ role: 'user' | 'assistant'; content: string }>;
+  return (data || []) as ConversationMessage[];
 }
 
-async function callClaude(
-  env: Env,
+async function callClaudeAPI(
   systemPrompt: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-  temperature: number = 0.3,
-  maxTokens: number = 300
-): Promise<string> {
-  const client = getClient(env);
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: maxTokens,
-    temperature,
-    system: systemPrompt,
-    messages,
-  });
+  messages: ConversationMessage[],
+  env: Env,
+  options: { temperature?: number } = {}
+): Promise<AIResponse> {
+  const { temperature = 0.5 } = options;
 
-  const textBlock = response.content.find((block) => block.type === 'text');
-  return textBlock ? textBlock.text : '';
-}
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(CLAUDE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: MAX_TOKENS,
+          temperature,
+          system: systemPrompt,
+          messages,
+        }),
+      });
 
-function parseJsonResponse<T>(text: string): T | null {
-  try {
-    // JSON部分を抽出（前後にテキストがある場合に対応）
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]) as T;
+      if (!response.ok) {
+        throw new Error(`Claude API: ${response.status}`);
+      }
+
+      const data = (await response.json()) as { content: Array<{ type: string; text?: string }> };
+      const text = data.content[0]?.text || '';
+      const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      return JSON.parse(cleaned) as AIResponse;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 500));
     }
-    return null;
-  } catch {
-    return null;
   }
+
+  throw new Error('Claude API: all retries exhausted');
 }
 
 export async function generateHearingResponse(
   context: FlowContext,
-  userMessage: string,
-  env: Env
-): Promise<HearingResponse> {
+  userMessage: string
+): Promise<AIResponse> {
   const systemPrompt =
     buildSystemPrompt(context.tenant, context.endUser, 'hearing') +
     '\n\n' +
     buildHearingPrompt(context.tenant, context.endUser);
 
-  const history = await getConversationHistory(
-    context.endUser.id,
-    context.tenant.id,
-    env
-  );
-  const messages = [...history, { role: 'user' as const, content: userMessage }];
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: userMessage },
+  ];
 
-  // 最大3回リトライ
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await callClaude(env, systemPrompt, messages, 0.3, 400);
-    const parsed = parseJsonResponse<HearingResponse>(response);
-    if (parsed && parsed.reply_message) {
-      return parsed;
-    }
-    logger.warn('Failed to parse hearing response, retrying', { attempt, response });
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.3 });
+  } catch (error) {
+    logger.error('Hearing response failed', { error: String(error) });
+    return {
+      reply_message: 'もう少し詳しく教えていただけますか？😊',
+      extracted_data: {},
+      insight: '',
+      is_hearing_complete: false,
+      escalate_to_human: false,
+    };
   }
-
-  // フォールバック
-  return {
-    reply_message: 'もう少し詳しく教えていただけますか？😊',
-    extracted_data: {},
-    insight: '',
-    is_hearing_complete: false,
-  };
 }
 
 export async function generateFollowUpResponse(
-  context: FlowContext,
-  env: Env
-): Promise<FollowUpResponse> {
+  context: FlowContext
+): Promise<AIResponse> {
   const systemPrompt =
     buildSystemPrompt(context.tenant, context.endUser, 'follow_up') +
     '\n\n' +
     buildFollowUpPrompt(context.tenant, context.endUser);
 
-  const history = await getConversationHistory(
-    context.endUser.id,
-    context.tenant.id,
-    env
-  );
-  // 追客はシステムからの発信なので、userメッセージとして「フォローアップ実行」を送る
-  const messages = [
-    ...history,
-    { role: 'user' as const, content: '（システム: フォローアップメッセージを生成してください）' },
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: '（システム: フォローアップメッセージを生成してください）' },
   ];
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await callClaude(env, systemPrompt, messages, 0.7, 400);
-    const parsed = parseJsonResponse<FollowUpResponse>(response);
-    if (parsed && parsed.reply_message) {
-      return parsed;
-    }
-    logger.warn('Failed to parse follow-up response, retrying', { attempt });
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.7 });
+  } catch (error) {
+    logger.error('Follow-up response failed', { error: String(error) });
+    return {
+      reply_message: 'その後いかがですか？何か気になることがあれば、いつでもメッセージくださいね😊',
+      should_continue_follow_up: true,
+      recommended_next_timing_hours: 48,
+      escalate_to_human: false,
+    };
   }
-
-  return {
-    reply_message: 'その後いかがですか？何か気になることがあれば、いつでもメッセージくださいね😊',
-    should_continue_follow_up: true,
-    recommended_next_timing_hours: 48,
-    escalate_to_human: false,
-  };
 }
 
 export async function generatePostConsultationResponse(
   context: FlowContext,
-  actionType: string,
-  env: Env
-): Promise<PostConsultationResponse> {
+  actionType: string
+): Promise<AIResponse> {
   const systemPrompt =
     buildSystemPrompt(context.tenant, context.endUser, 'post_consultation') +
     '\n\n' +
     buildPostConsultationPrompt(context.tenant, context.endUser, actionType);
 
-  const history = await getConversationHistory(
-    context.endUser.id,
-    context.tenant.id,
-    env
-  );
-  const messages = [
-    ...history,
-    { role: 'user' as const, content: `（システム: ${actionType}メッセージを生成してください）` },
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: `（システム: ${actionType}メッセージを生成してください）` },
   ];
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await callClaude(env, systemPrompt, messages, 0.5, 400);
-    const parsed = parseJsonResponse<PostConsultationResponse>(response);
-    if (parsed && parsed.reply_message) {
-      return parsed;
-    }
-    logger.warn('Failed to parse post-consultation response, retrying', { attempt });
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.5 });
+  } catch (error) {
+    logger.error('Post-consultation response failed', { error: String(error) });
+    return {
+      reply_message: 'ご参加ありがとうございました！何かご不明な点があれば、いつでもメッセージくださいね😊',
+      insight: '',
+      escalate_to_human: false,
+    };
   }
-
-  return {
-    reply_message: 'ご参加ありがとうございました！何かご不明な点があれば、いつでもメッセージくださいね😊',
-    insight: '',
-  };
 }
 
 export async function handleUnexpectedInput(
   context: FlowContext,
-  userMessage: string,
-  env: Env
-): Promise<string> {
+  userMessage: string
+): Promise<AIResponse> {
   const systemPrompt =
     buildSystemPrompt(context.tenant, context.endUser, 'general') +
     `\n\n## 今の状況
@@ -202,15 +163,22 @@ export async function handleUnexpectedInput(
 このステップでは定型メッセージを送信した直後です。
 ユーザーからの返信に対して、適切に対応してください。
 予約や相談会に関する質問には丁寧に答え、次のステップへの誘導を心がけてください。
-150文字以内で応答してください。`;
 
-  const history = await getConversationHistory(
-    context.endUser.id,
-    context.tenant.id,
-    env
-  );
-  const messages = [...history, { role: 'user' as const, content: userMessage }];
+### 応答フォーマット（JSON以外出力禁止）
+{ "reply_message": "（150文字以内）", "escalate_to_human": false }`;
 
-  const response = await callClaude(env, systemPrompt, messages, 0.5, 300);
-  return response || 'すみません、もう少し詳しく教えていただけますか？😊';
+  const messages: ConversationMessage[] = [
+    ...context.conversationHistory,
+    { role: 'user', content: userMessage },
+  ];
+
+  try {
+    return await callClaudeAPI(systemPrompt, messages, context.env, { temperature: 0.5 });
+  } catch (error) {
+    logger.error('Unexpected input handling failed', { error: String(error) });
+    return {
+      reply_message: 'すみません、もう少し詳しく教えていただけますか？😊',
+      escalate_to_human: false,
+    };
+  }
 }

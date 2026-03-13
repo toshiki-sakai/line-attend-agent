@@ -11,15 +11,24 @@ export function verifySignature(body: string, signature: string, channelSecret: 
   return digest === signature;
 }
 
-export async function sendTextMessage(
+export async function pushMessage(
   tenant: Tenant,
   userId: string,
   text: string
 ): Promise<void> {
-  await sendPushMessage(tenant, userId, [{ type: 'text', text }]);
+  await pushMessages(tenant, userId, [{ type: 'text', text }]);
 }
 
-export async function sendPushMessage(
+export async function pushFlexMessage(
+  tenant: Tenant,
+  userId: string,
+  flex: unknown,
+  altText: string
+): Promise<void> {
+  await pushMessages(tenant, userId, [{ type: 'flex', altText, contents: flex }]);
+}
+
+async function pushMessages(
   tenant: Tenant,
   userId: string,
   messages: unknown[]
@@ -44,30 +53,6 @@ export async function sendPushMessage(
   }
 }
 
-export async function sendReplyMessage(
-  tenant: Tenant,
-  replyToken: string,
-  messages: unknown[]
-): Promise<void> {
-  const response = await fetch(`${LINE_API_BASE}/message/reply`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${tenant.line_channel_access_token}`,
-    },
-    body: JSON.stringify({ replyToken, messages }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    logger.error('LINE reply message failed', {
-      status: response.status,
-      body: errorBody,
-    });
-    throw new Error(`LINE API error: ${response.status} ${errorBody}`);
-  }
-}
-
 export async function getProfile(
   tenant: Tenant,
   userId: string
@@ -84,12 +69,4 @@ export async function getProfile(
   } catch {
     return null;
   }
-}
-
-export function buildFlexMessage(altText: string, contents: unknown): unknown {
-  return {
-    type: 'flex',
-    altText,
-    contents,
-  };
 }
