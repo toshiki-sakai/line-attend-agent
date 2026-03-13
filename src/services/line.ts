@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Tenant } from '../types';
 import { logger } from '../utils/logger';
 
@@ -7,8 +7,10 @@ const LINE_API_BASE = 'https://api.line.me/v2/bot';
 export function verifySignature(body: string, signature: string, channelSecret: string): boolean {
   const hmac = createHmac('SHA256', channelSecret);
   hmac.update(body);
-  const digest = hmac.digest('base64');
-  return digest === signature;
+  const expected = hmac.digest();
+  const actual = Buffer.from(signature, 'base64');
+  if (expected.length !== actual.length) return false;
+  return timingSafeEqual(expected, actual);
 }
 
 export async function pushMessage(

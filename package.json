@@ -12,7 +12,8 @@
     "@supabase/supabase-js": "^2.99.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
-    "hono": "^4.12.7"
+    "hono": "^4.12.7",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260313.1",

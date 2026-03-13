@@ -2,12 +2,20 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { verifySignature } from '../services/line';
 import { getTenant } from '../config/tenant-config';
+import { uuidSchema, lineWebhookBodySchema } from '../utils/validation';
 import { logger } from '../utils/logger';
 
 const webhook = new Hono<{ Bindings: Env }>();
 
 webhook.post('/webhook/:tenantId', async (c) => {
-  const tenantId = c.req.param('tenantId');
+  const tenantIdRaw = c.req.param('tenantId');
+
+  // URLパラメータのバリデーション
+  const tenantIdResult = uuidSchema.safeParse(tenantIdRaw);
+  if (!tenantIdResult.success) {
+    return c.text('Bad request', 400);
+  }
+  const tenantId = tenantIdResult.data;
 
   let tenant;
   try {
@@ -28,11 +36,19 @@ webhook.post('/webhook/:tenantId', async (c) => {
     return c.text('Invalid signature', 401);
   }
 
-  const events = JSON.parse(body).events || [];
-  if (events.length > 0) {
+  // リクエストボディのバリデーション
+  let parsed;
+  try {
+    parsed = lineWebhookBodySchema.parse(JSON.parse(body));
+  } catch (error) {
+    logger.warn('Invalid webhook body', { tenantId, error: String(error) });
+    return c.text('Bad request', 400);
+  }
+
+  if (parsed.events.length > 0) {
     await c.env.MESSAGE_QUEUE.send({
       tenantId: tenant.id,
-      events,
+      events: parsed.events,
       receivedAt: new Date().toISOString(),
     });
   }

@@ -6,6 +6,7 @@ import { FlowEngine } from './flow-engine';
 import { createBooking } from './booking';
 import { getConversationHistory } from './ai';
 import { isAlreadyProcessed, markProcessed } from '../utils/idempotency';
+import { isValidUUID } from '../utils/validation';
 import { formatDateJST, formatTimeJST } from '../utils/datetime';
 import { logger } from '../utils/logger';
 
@@ -218,6 +219,12 @@ async function handlePostback(
   if (!postbackData.startsWith('book:')) return;
 
   const slotId = postbackData.replace('book:', '');
+
+  // slotIdのUUID形式チェック
+  if (!isValidUUID(slotId)) {
+    logger.warn('Invalid slot ID in postback', { slotId });
+    return;
+  }
 
   const { data: endUser } = await supabase
     .from('end_users')
