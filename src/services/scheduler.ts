@@ -17,6 +17,7 @@ export async function handleScheduled(
   await Promise.allSettled([
     processScheduledActions(env),
     detectNoShows(env),
+    detectStaleConversations(env),
   ]);
 }
 
@@ -87,6 +88,87 @@ async function handleActionFailure(action: ScheduledAction, env: Env): Promise<v
       type: 'error',
       endUser: endUser as EndUser,
       reason: `Scheduled action failed after max attempts: ${action.action_type}. Error: ${action.last_error}`,
+    });
+  }
+}
+
+/**
+ * Detect users who haven't responded and schedule follow-up actions.
+ * Only for active users (not booked/consulted/enrolled/stalled/dropped).
+ * Checks: user has received a message (last_message_at) but hasn't responded within the configured interval.
+ */
+async function detectStaleConversations(env: Env): Promise<void> {
+  const supabase = getSupabaseClient(env);
+
+  // Find active users who received a message but haven't responded
+  // Only process users who don't already have pending follow-up actions
+  const minStaleHours = 24; // At least 24 hours since last bot message
+  const staleThreshold = new Date(Date.now() - minStaleHours * 60 * 60 * 1000).toISOString();
+
+  const { data: staleUsers } = await supabase
+    .from('end_users')
+    .select('id, tenant_id, follow_up_count, last_message_at, last_response_at')
+    .eq('status', 'active')
+    .eq('is_blocked', false)
+    .not('last_message_at', 'is', null)
+    .lt('last_message_at', staleThreshold);
+
+  if (!staleUsers || staleUsers.length === 0) return;
+
+  for (const user of staleUsers) {
+    // Skip if user responded after the last bot message
+    if (user.last_response_at && user.last_message_at &&
+        new Date(user.last_response_at) >= new Date(user.last_message_at)) {
+      continue;
+    }
+
+    // Check if there's already a pending follow-up for this user
+    const { count: pendingFollowUps } = await supabase
+      .from('scheduled_actions')
+      .select('*', { count: 'exact', head: true })
+      .eq('end_user_id', user.id)
+      .eq('action_type', 'follow_up')
+      .eq('status', 'pending');
+
+    if ((pendingFollowUps || 0) > 0) continue;
+
+    // Get tenant config to check if follow-up is enabled
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('reminder_config')
+      .eq('id', user.tenant_id)
+      .eq('is_active', true)
+      .single();
+
+    if (!tenant) continue;
+
+    const reminderConfig = tenant.reminder_config as Record<string, unknown> | null;
+    const followUpConfig = reminderConfig?.no_response_follow_up as Record<string, unknown> | null;
+    if (!followUpConfig?.enabled) continue;
+
+    const maxAttempts = (followUpConfig.max_attempts as number) || 4;
+    if (user.follow_up_count >= maxAttempts) continue;
+
+    // Schedule follow-up based on configured interval
+    const minInterval = (followUpConfig.min_interval_hours as number) || 24;
+    const maxInterval = (followUpConfig.max_interval_hours as number) || 72;
+    // Increase interval with each follow-up attempt
+    const intervalHours = Math.min(minInterval + user.follow_up_count * 24, maxInterval);
+    const executeAt = new Date(Date.now() + intervalHours * 60 * 60 * 1000).toISOString();
+
+    await supabase.from('scheduled_actions').insert({
+      tenant_id: user.tenant_id,
+      end_user_id: user.id,
+      action_type: 'follow_up',
+      action_payload: { attempt: user.follow_up_count + 1 },
+      execute_at: executeAt,
+      status: 'pending',
+    });
+
+    logger.info('Follow-up scheduled for stale user', {
+      userId: user.id,
+      attempt: user.follow_up_count + 1,
+      executeAt,
     });
   }
 }

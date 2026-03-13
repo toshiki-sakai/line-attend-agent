@@ -100,6 +100,7 @@ export class FlowEngine {
 
     await pushMessage(context.tenant, context.endUser.line_user_id, validated.message);
     await this.saveConversation(context, 'assistant', validated.message, aiResponse);
+    await this.updateLastMessageAt(context.endUser.id);
   }
 
   async advanceStep(context: FlowContext): Promise<void> {
@@ -195,6 +196,7 @@ export class FlowEngine {
       env,
     };
     await this.saveConversation(dummyContext, 'assistant', processedContent);
+    await this.updateLastMessageAt(endUser.id);
 
     if (step.next_step) {
       const nextStep = this.getStepById(tenant, step.next_step);
@@ -268,6 +270,14 @@ export class FlowEngine {
     await supabase
       .from('end_users')
       .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', endUserId);
+  }
+
+  private async updateLastMessageAt(endUserId: string): Promise<void> {
+    const supabase = getSupabaseClient(this.env);
+    await supabase
+      .from('end_users')
+      .update({ last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', endUserId);
   }
 
