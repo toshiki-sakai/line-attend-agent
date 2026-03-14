@@ -3390,95 +3390,111 @@ dashboard.get('/admin/tenants/:id/sessions', async (c) => {
 
   const sessionStatusColor = (s: string) => {
     switch(s) {
-      case 'active': return 'bg-emerald-100 text-emerald-700';
-      case 'completed': return 'bg-blue-100 text-blue-700';
-      case 'expired': return 'bg-gray-100 text-gray-600';
-      case 'escalated': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-600';
+      case 'active': return 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200';
+      case 'completed': return 'bg-blue-50 text-blue-600 ring-1 ring-blue-200';
+      case 'expired': return 'bg-slate-50 text-slate-500 ring-1 ring-slate-200';
+      case 'escalated': return 'bg-red-50 text-red-600 ring-1 ring-red-200';
+      default: return 'bg-slate-50 text-slate-500 ring-1 ring-slate-200';
     }
   };
 
   return c.html(
     <Layout title={`AIセッション - ${tenant.name}`}>
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">AIセッション</h1>
-        <a href={`/admin/tenants/${id}`} class="text-sm text-indigo-600 hover:text-indigo-800">&larr; テナントに戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant.name}
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">AIセッション</h1>
       </div>
 
       {/* Stats */}
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-        <div class="bg-white p-4 rounded shadow text-center">
-          <p class="text-2xl font-bold text-emerald-600">{activeCount || 0}</p>
-          <p class="text-xs text-gray-500">アクティブ</p>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div class="card p-4 text-center">
+          <p class="text-2xl font-extrabold text-emerald-600 count-up">{activeCount || 0}</p>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">アクティブ</p>
         </div>
-        <div class="bg-white p-4 rounded shadow text-center">
-          <p class="text-2xl font-bold text-blue-600">{completedCount || 0}</p>
-          <p class="text-xs text-gray-500">完了</p>
+        <div class="card p-4 text-center">
+          <p class="text-2xl font-extrabold text-blue-600 count-up">{completedCount || 0}</p>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">完了</p>
         </div>
-        <div class="bg-white p-4 rounded shadow text-center">
-          <p class="text-2xl font-bold text-gray-500">{expiredCount || 0}</p>
-          <p class="text-xs text-gray-500">期限切れ</p>
+        <div class="card p-4 text-center">
+          <p class="text-2xl font-extrabold text-slate-400 count-up">{expiredCount || 0}</p>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">期限切れ</p>
         </div>
-        <div class="bg-white p-4 rounded shadow text-center">
-          <p class="text-2xl font-bold text-red-600">{escalatedCount || 0}</p>
-          <p class="text-xs text-gray-500">エスカレ</p>
+        <div class="card p-4 text-center">
+          <p class="text-2xl font-extrabold text-red-600 count-up">{escalatedCount || 0}</p>
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-1">エスカレ</p>
         </div>
-        <div class="bg-white p-4 rounded shadow text-center">
-          <p class="text-2xl font-bold">{completionRate}%</p>
-          <p class="text-xs text-gray-500">完了率 / 平均{avgTurns}ターン</p>
+        <div class="card p-4 text-center gradient-hero text-white shadow-lg shadow-indigo-500/15">
+          <p class="text-2xl font-extrabold count-up">{completionRate}%</p>
+          <p class="text-[10px] font-semibold text-white/60 uppercase tracking-wider mt-1">完了率 / {avgTurns}ターン</p>
         </div>
       </div>
 
       {/* Filter */}
-      <div class="flex gap-2 mb-4">
-        <a href={`/admin/tenants/${id}/sessions`} class={`px-3 py-1 rounded text-sm ${!status ? 'bg-indigo-600 text-white' : 'bg-gray-100'}`}>全て</a>
-        <a href={`/admin/tenants/${id}/sessions?status=active`} class={`px-3 py-1 rounded text-sm ${status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-100'}`}>アクティブ</a>
-        <a href={`/admin/tenants/${id}/sessions?status=completed`} class={`px-3 py-1 rounded text-sm ${status === 'completed' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>完了</a>
-        <a href={`/admin/tenants/${id}/sessions?status=escalated`} class={`px-3 py-1 rounded text-sm ${status === 'escalated' ? 'bg-red-600 text-white' : 'bg-gray-100'}`}>エスカレ</a>
+      <div class="flex gap-1.5 mb-5">
+        <a href={`/admin/tenants/${id}/sessions`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!status ? 'gradient-hero text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
+        <a href={`/admin/tenants/${id}/sessions?status=active`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${status === 'active' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>アクティブ</a>
+        <a href={`/admin/tenants/${id}/sessions?status=completed`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${status === 'completed' ? 'bg-blue-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>完了</a>
+        <a href={`/admin/tenants/${id}/sessions?status=escalated`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${status === 'escalated' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>エスカレ</a>
       </div>
 
       {/* Sessions List */}
-      <div class="bg-white rounded shadow overflow-x-auto">
+      <div class="card overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="bg-gray-50 text-left">
-            <tr>
-              <th class="px-4 py-3 font-medium">ユーザー</th>
-              <th class="px-4 py-3 font-medium">タイプ</th>
-              <th class="px-4 py-3 font-medium">ステータス</th>
-              <th class="px-4 py-3 font-medium">フェーズ</th>
-              <th class="px-4 py-3 font-medium">ターン数</th>
-              <th class="px-4 py-3 font-medium">開始</th>
+          <thead>
+            <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+              <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
+              <th class="text-left px-5 py-2.5 font-semibold">タイプ</th>
+              <th class="text-left px-5 py-2.5 font-semibold">ステータス</th>
+              <th class="text-left px-5 py-2.5 font-semibold">フェーズ</th>
+              <th class="text-left px-5 py-2.5 font-semibold">ターン数</th>
+              <th class="text-left px-5 py-2.5 font-semibold">開始</th>
             </tr>
           </thead>
           <tbody>
             {(sessions || []).map((s: Record<string, unknown>) => {
               const eu = s.end_users as unknown as { display_name: string | null; line_user_id: string };
+              const initials = (eu?.display_name || '?').slice(0, 1);
               return (
-                <tr class="border-t hover:bg-gray-50">
-                  <td class="px-4 py-3">
-                    <a href={`/admin/tenants/${id}/users/${s.end_user_id}`} class="text-indigo-600 hover:text-indigo-800">
-                      {eu?.display_name || eu?.line_user_id || '(不明)'}
+                <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
+                  <td class="px-5 py-3.5">
+                    <a href={`/admin/tenants/${id}/users/${s.end_user_id}`} class="flex items-center gap-2.5 group">
+                      <span class="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">{initials}</span>
+                      <span class="text-slate-700 group-hover:text-indigo-600 transition font-medium">{eu?.display_name || eu?.line_user_id || '(不明)'}</span>
                     </a>
                   </td>
-                  <td class="px-4 py-3">{s.session_type as string}</td>
-                  <td class="px-4 py-3">
-                    <span class={`px-2 py-0.5 rounded text-xs ${sessionStatusColor(s.status as string)}`}>
+                  <td class="px-5 py-3.5">
+                    <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">{s.session_type as string}</span>
+                  </td>
+                  <td class="px-5 py-3.5">
+                    <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${sessionStatusColor(s.status as string)}`}>
                       {s.status as string}
                     </span>
                   </td>
-                  <td class="px-4 py-3 text-gray-500">{(s.phase as string) || '-'}</td>
-                  <td class="px-4 py-3">{s.turn_count as number}</td>
-                  <td class="px-4 py-3 text-gray-500 text-xs">{formatDateTimeJST(s.started_at as string)}</td>
+                  <td class="px-5 py-3.5 text-slate-400 text-xs">{(s.phase as string) || '-'}</td>
+                  <td class="px-5 py-3.5">
+                    <span class="text-slate-600 font-medium">{s.turn_count as number}</span>
+                    <span class="text-slate-300 text-xs ml-0.5">ターン</span>
+                  </td>
+                  <td class="px-5 py-3.5 text-slate-400 text-xs">{formatDateTimeJST(s.started_at as string)}</td>
                 </tr>
               );
             })}
             {(!sessions || sessions.length === 0) && (
-              <tr><td colspan={6} class="px-4 py-8 text-center text-gray-400">セッションがありません</td></tr>
+              <tr><td colspan={6} class="px-5 py-16 text-center">
+                <div class="flex flex-col items-center gap-3">
+                  <svg class="w-12 h-12 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                  <p class="text-slate-400 text-sm">セッションがまだありません</p>
+                  <p class="text-slate-300 text-xs">ヒアリングが開始されると、ここに表示されます</p>
+                </div>
+              </td></tr>
             )}
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-gray-400 mt-2">合計: {count || 0}件</p>
+      <p class="text-xs text-slate-400 mt-3">合計: <span class="font-medium text-slate-500">{count || 0}</span> 件</p>
     </Layout>
   );
 });
