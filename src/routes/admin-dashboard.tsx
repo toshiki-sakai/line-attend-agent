@@ -3251,22 +3251,34 @@ dashboard.get('/admin/tenants/:id/live', async (c) => {
   return c.html(
     <Layout title={`ライブ会話 - ${tenant.name}`}>
       <div class="max-w-6xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <a href={`/admin/tenants/${id}`} class="text-sm text-gray-500 hover:text-gray-700">&larr; {tenant.name}</a>
-            <h1 class="text-2xl font-bold mt-1 flex items-center gap-2">
-              ライブ会話モニター
-              <span class="inline-block w-2 h-2 bg-emerald-500 rounded-full" style="animation: pulse-dot 2s infinite"></span>
-            </h1>
-            <p class="text-sm text-gray-500 mt-1">直近24時間のAI会話をリアルタイムで監視。問題があればワンクリックで介入できます。</p>
+        <div class="mb-6">
+          <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            {tenant.name}
+          </a>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <h1 class="text-xl font-bold text-slate-800">ライブ会話</h1>
+              <span class="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+                <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full pulse-dot"></span>
+                モニタリング中
+              </span>
+            </div>
+            <a href={`/admin/tenants/${id}/simulator`} class="inline-flex items-center gap-1.5 gradient-hero text-white px-4 py-2 rounded-xl text-sm font-semibold hover:opacity-90 transition shadow-md shadow-indigo-500/20">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              シミュレーター
+            </a>
           </div>
-          <a href={`/admin/tenants/${id}/simulator`} class="bg-indigo-600 text-white px-4 py-2 rounded text-sm hover:bg-indigo-700 transition">AIシミュレーター</a>
+          <p class="text-sm text-slate-400 mt-1">直近24時間の会話をリアルタイム監視</p>
         </div>
 
         {sortedUsers.length === 0 ? (
-          <div class="text-center py-16 text-gray-400">
-            <p class="text-lg mb-2">直近24時間の会話はありません</p>
-            <p class="text-sm">新しい会話が始まるとここに表示されます</p>
+          <div class="empty-state py-16">
+            <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            </div>
+            <p class="text-slate-500 font-medium mb-1">直近24時間の会話はありません</p>
+            <p class="text-sm text-slate-400">新しい会話が始まるとここに表示されます</p>
           </div>
         ) : (
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -3278,26 +3290,27 @@ dashboard.get('/admin/tenants/:id/live', async (c) => {
               const reversedMsgs = [...msgs].reverse().slice(-8); // Show last 8 messages
 
               return (
-                <div class={`bg-white rounded-lg shadow-sm border overflow-hidden ${isTakeover ? 'ring-2 ring-amber-400' : ''}`}>
+                <div class={`card overflow-hidden ${isTakeover ? 'ring-2 ring-amber-400' : ''}`}>
                   {/* Header */}
-                  <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                  <div class="px-4 py-3 flex justify-between items-center border-b border-slate-100">
                     <div class="flex items-center gap-2">
-                      <span class="font-medium text-sm">{userName}</span>
-                      <span class={`text-[10px] px-1.5 py-0.5 rounded ${statusBadgeColor(userStatus)}`}>{statusLabel(userStatus)}</span>
-                      {isTakeover && <span class="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded">スタッフ対応中</span>}
+                      <div class="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                        {userName[0]}
+                      </div>
+                      <span class="font-semibold text-sm text-slate-700">{userName}</span>
+                      <span class={`text-[10px] px-1.5 py-0.5 rounded font-medium ${statusColor(userStatus)}`}>{statusLabel(userStatus)}</span>
+                      {isTakeover && <span class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">スタッフ対応</span>}
                     </div>
-                    <div class="flex gap-1">
-                      <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs bg-white/20 hover:bg-white/30 px-2 py-1 rounded transition">詳細</a>
-                    </div>
+                    <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs text-slate-400 hover:text-indigo-600 transition">詳細</a>
                   </div>
 
                   {/* Messages */}
-                  <div class="p-3 space-y-2 bg-slate-50 max-h-64 overflow-y-auto">
+                  <div class="p-3 space-y-2 bg-[#f0f2f5] max-h-56 overflow-y-auto custom-scrollbar">
                     {reversedMsgs.map(m => {
                       const isUser = m.role === 'user';
                       return (
                         <div class={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                          <div class={`max-w-[80%] px-3 py-1.5 text-xs rounded-xl ${isUser ? 'bg-indigo-100 text-indigo-900 rounded-tr-sm' : 'bg-white border rounded-tl-sm shadow-sm'}`}>
+                          <div class={`max-w-[80%] px-3 py-1.5 text-xs rounded-xl ${isUser ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-tr-sm' : 'bg-white rounded-tl-sm shadow-sm text-slate-700'}`}>
                             {m.content as string}
                           </div>
                         </div>
@@ -3305,11 +3318,14 @@ dashboard.get('/admin/tenants/:id/live', async (c) => {
                     })}
                   </div>
 
-                  {/* Quick actions */}
-                  <div class="border-t px-3 py-2 bg-white flex items-center gap-2">
-                    <span class="text-[10px] text-gray-400">{timeAgo(msgs[0].created_at as string)}</span>
+                  {/* Footer */}
+                  <div class="border-t border-slate-100 px-4 py-2.5 bg-white flex items-center gap-2">
+                    <span class="text-[10px] text-slate-400">{timeAgo(msgs[0].created_at as string)}</span>
                     <div class="flex-1"></div>
-                    <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">会話を見る &rarr;</a>
+                    <a href={`/admin/tenants/${id}/users/${userId}`} class="text-xs text-indigo-600 hover:text-indigo-700 font-semibold transition flex items-center gap-1">
+                      会話を見る
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </a>
                   </div>
                 </div>
               );
