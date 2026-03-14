@@ -959,69 +959,115 @@ dashboard.get('/admin/tenants/:id', async (c) => {
 
   return c.html(
     <Layout title={tenant.name}>
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant.name}</h1>
-        <div class="space-x-2 flex flex-wrap gap-1">
-          <a href={`/admin/tenants/${id}/users`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">ユーザー一覧</a>
-          <a href={`/admin/tenants/${id}/bookings`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">予約管理</a>
-          <a href={`/admin/tenants/${id}/analytics`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">分析</a>
-          <a href={`/admin/tenants/${id}/slots`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">予約枠</a>
-          <a href={`/admin/tenants/${id}/actions`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">アクション</a>
-          <a href={`/admin/tenants/${id}/sessions`} class="bg-gray-100 px-4 py-2 rounded hover:bg-gray-200 text-sm">AIセッション</a>
-          <a href={`/admin/tenants/${id}/simulator`} class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 text-sm font-medium">AIシミュレーター</a>
-          <a href={`/admin/tenants/${id}/live`} class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 text-sm font-medium">ライブ会話</a>
+      {/* Header */}
+      <div class="mb-6">
+        <a href="/admin/" class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          ダッシュボード
+        </a>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl gradient-hero flex items-center justify-center text-white font-bold text-sm shadow-md">
+              {tenant.name[0]}
+            </div>
+            <div>
+              <h1 class="text-xl font-bold text-slate-800">{tenant.name}</h1>
+              <span class={`inline-flex items-center gap-1 text-xs font-medium ${tenant.is_active ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {tenant.is_active && <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>}
+                {tenant.is_active ? '稼働中' : '停止中'}
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href={`/admin/tenants/${id}/simulator`} class="inline-flex items-center gap-1.5 gradient-hero text-white px-4 py-2 rounded-xl hover:opacity-90 transition text-sm font-semibold shadow-md shadow-indigo-500/20">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              AIシミュレーター
+            </a>
+          </div>
         </div>
       </div>
 
-      <div class="bg-blue-50 border border-blue-200 rounded p-4 mb-6">
-        <p class="text-sm font-medium text-blue-700 mb-1">Webhook URL（LINE Developersに設定）</p>
-        <code class="text-sm break-all">{webhookUrl}</code>
+      {/* Quick nav tabs */}
+      <div class="flex gap-1 mb-6 overflow-x-auto pb-1 -mx-2 px-2">
+        {[
+          { href: `/admin/tenants/${id}/users`, label: 'ユーザー', icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>' },
+          { href: `/admin/tenants/${id}/analytics`, label: '分析', icon: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' },
+          { href: `/admin/tenants/${id}/bookings`, label: '予約', icon: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>' },
+          { href: `/admin/tenants/${id}/sessions`, label: 'AIセッション', icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>' },
+          { href: `/admin/tenants/${id}/actions`, label: 'アクション', icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+          { href: `/admin/tenants/${id}/live`, label: 'ライブ会話', icon: '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>' },
+        ].map((tab) => (
+          <a href={tab.href} class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition whitespace-nowrap">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" dangerouslySetInnerHTML={{__html: tab.icon}}></svg>
+            {tab.label}
+          </a>
+        ))}
       </div>
 
-      {/* API Integration Info */}
-      <div class="bg-emerald-50 border border-emerald-200 rounded p-4 mb-6">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-sm font-medium text-emerald-700">Lステップ API連携</p>
+      {/* API Integration Card */}
+      <div class="card p-5 mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
+            </div>
+            <h2 class="font-bold text-slate-700 text-sm">API連携</h2>
+          </div>
           <form method="post" action={`/admin/api/tenants/${tenant.id}/api-key`}>
-            <button type="submit" class="text-xs bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700">
+            <button type="submit" class="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition font-medium">
               {tenant.api_key_prefix ? 'APIキーを再生成' : 'APIキーを生成'}
             </button>
           </form>
         </div>
-        {tenant.api_key_prefix ? (
-          <p class="text-xs text-emerald-600">APIキー設定済み（プレフィックス: {tenant.api_key_prefix}...）</p>
-        ) : (
-          <p class="text-xs text-gray-500">APIキーが未設定です。Lステップ連携にはAPIキーの生成が必要です。</p>
-        )}
-        <p class="text-xs text-gray-400 mt-1">Base URL: <code>https://line-attend-agent.toshiki7124.workers.dev/api/v1/</code></p>
+        <div class="flex items-center gap-4 text-xs">
+          {tenant.api_key_prefix ? (
+            <span class="inline-flex items-center gap-1.5 text-emerald-600">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              APIキー設定済み（{tenant.api_key_prefix}...）
+            </span>
+          ) : (
+            <span class="text-slate-400">APIキーが未設定です</span>
+          )}
+          <span class="text-slate-300">|</span>
+          <code class="text-slate-400 text-[11px]">Base: https://line-attend-agent.toshiki7124.workers.dev/api/v1/</code>
+        </div>
       </div>
 
-      {/* AI Impact Hero Banner */}
+      {/* AI Performance Summary */}
       {aiPerf && funnel && (
-        <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 rounded-xl p-6 mb-6 text-white shadow-lg">
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h2 class="text-lg font-bold">AIエージェント パフォーマンス</h2>
-              <p class="text-xs text-white/50">直近7日間</p>
+        <div class="gradient-dark rounded-2xl p-6 mb-6 text-white shadow-xl overflow-hidden relative">
+          <div class="absolute top-0 right-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none"></div>
+          <div class="relative">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <h2 class="font-bold text-sm">AIパフォーマンス</h2>
+                <span class="text-white/30 text-xs">直近7日間</span>
+              </div>
+              <a href={`/admin/tenants/${id}/analytics`} class="text-xs text-indigo-300 hover:text-white transition flex items-center gap-1">
+                詳細
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </a>
             </div>
-            <a href={`/admin/tenants/${id}/analytics`} class="text-xs text-indigo-300 hover:text-white transition">詳細 &rarr;</a>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
-              <p class="text-2xl font-black">{aiPerf.auto_resolution_rate}%</p>
-              <p class="text-[10px] text-white/60">AI自動対応率</p>
-            </div>
-            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
-              <p class="text-2xl font-black text-emerald-400">{aiPerf.estimated_hours_saved}h</p>
-              <p class="text-[10px] text-white/60">削減時間</p>
-            </div>
-            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
-              <p class="text-2xl font-black text-amber-400">&yen;{aiPerf.estimated_cost_saved.toLocaleString()}</p>
-              <p class="text-[10px] text-white/60">コスト削減</p>
-            </div>
-            <div class="bg-white/10 rounded-lg p-3 text-center backdrop-blur">
-              <p class="text-2xl font-black">{funnel.attendance_rate ?? '--'}%</p>
-              <p class="text-[10px] text-white/60">着座率</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div class="bg-white/[0.07] rounded-xl p-3.5 text-center border border-white/[0.05]">
+                <p class="text-2xl font-extrabold tracking-tight">{aiPerf.auto_resolution_rate}%</p>
+                <p class="text-[10px] text-white/40 mt-0.5">AI自動対応率</p>
+              </div>
+              <div class="bg-white/[0.07] rounded-xl p-3.5 text-center border border-white/[0.05]">
+                <p class="text-2xl font-extrabold tracking-tight text-emerald-400">{aiPerf.estimated_hours_saved}h</p>
+                <p class="text-[10px] text-white/40 mt-0.5">削減時間</p>
+              </div>
+              <div class="bg-white/[0.07] rounded-xl p-3.5 text-center border border-white/[0.05]">
+                <p class="text-2xl font-extrabold tracking-tight text-amber-400">&yen;{aiPerf.estimated_cost_saved.toLocaleString()}</p>
+                <p class="text-[10px] text-white/40 mt-0.5">コスト削減</p>
+              </div>
+              <div class="bg-white/[0.07] rounded-xl p-3.5 text-center border border-white/[0.05]">
+                <p class="text-2xl font-extrabold tracking-tight">{funnel.attendance_rate ?? '--'}%</p>
+                <p class="text-[10px] text-white/40 mt-0.5">着座率</p>
+              </div>
             </div>
           </div>
         </div>
@@ -1064,37 +1110,71 @@ dashboard.get('/admin/tenants/:id', async (c) => {
         </div>
       )}
 
-      <form method="post" action={`/admin/tenants/${id}/edit`} class="bg-white p-6 rounded shadow space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">スクール名</label>
-          <input type="text" name="name" value={tenant.name} class="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel ID</label>
-          <input type="text" name="line_channel_id" value={tenant.line_channel_id} class="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel Secret</label>
-          <input type="text" name="line_channel_secret" value={tenant.line_channel_secret} class="w-full border rounded px-3 py-2" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">LINE Channel Access Token</label>
-          <textarea name="line_channel_access_token" rows={2} class="w-full border rounded px-3 py-2">{tenant.line_channel_access_token}</textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">スクール情報</label>
-          <textarea name="school_context" rows={3} class="w-full border rounded px-3 py-2">{tenant.school_context}</textarea>
+      <form method="post" action={`/admin/tenants/${id}/edit`} class="space-y-6">
+        {/* Basic Info Card */}
+        <div class="card p-6">
+          <h2 class="font-bold text-slate-800 text-sm mb-4 flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+            基本情報
+          </h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1.5">スクール名</label>
+              <input type="text" name="name" value={tenant.name} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1.5">スクール情報</label>
+              <textarea name="school_context" rows={3} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{tenant.school_context}</textarea>
+            </div>
+          </div>
         </div>
 
-        {/* Scenario - JSON maintained with flow preview above */}
-        <div>
-          <label class="block text-sm font-medium mb-1">シナリオ設定 (JSON)</label>
-          <textarea name="scenario_config" rows={8} class="w-full border rounded px-3 py-2 font-mono text-sm">{JSON.stringify(tenant.scenario_config, null, 2)}</textarea>
-        </div>
+        {/* LINE Settings (collapsible) */}
+        <details class="card overflow-hidden group">
+          <summary class="p-5 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+              <h2 class="font-bold text-slate-800 text-sm">LINE直接接続設定</h2>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="px-5 pb-5 space-y-3 border-t border-slate-100 pt-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel ID</label>
+              <input type="text" name="line_channel_id" value={tenant.line_channel_id} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Secret</label>
+              <input type="text" name="line_channel_secret" value={tenant.line_channel_secret} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
+              <textarea name="line_channel_access_token" rows={2} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{tenant.line_channel_access_token}</textarea>
+            </div>
+            <p class="text-xs text-slate-400">Webhook URL: <code class="text-indigo-500">{webhookUrl}</code></p>
+          </div>
+        </details>
 
-        {/* Hearing - Structured Form */}
-        <div class="border-t pt-4">
-          <h3 class="text-sm font-bold mb-2">ヒアリング項目</h3>
+        {/* Scenario JSON (collapsible) */}
+        <details class="card overflow-hidden group">
+          <summary class="p-5 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <h2 class="font-bold text-slate-800 text-sm">シナリオ設定 (JSON)</h2>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="px-5 pb-5 border-t border-slate-100 pt-4">
+            <textarea name="scenario_config" rows={8} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{JSON.stringify(tenant.scenario_config, null, 2)}</textarea>
+          </div>
+        </details>
+
+        {/* Hearing */}
+        <div class="card p-6">
+          <h2 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            ヒアリング項目
+          </h2>
           <div id="hearing-items">
             {hearingItems.map((item: { id: string; question_hint: string; required: boolean; priority: number }, i: number) => (
               <HearingItemRow item={item} index={i} />
@@ -1117,9 +1197,17 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           <button type="button" id="add-hearing-btn" class="mt-2 text-sm text-indigo-600 hover:underline">+ 項目を追加</button>
         </div>
 
-        {/* Reminder - Structured Form */}
-        <div class="border-t pt-4">
-          <h3 class="text-sm font-bold mb-2">リマインド設定</h3>
+        {/* Reminder */}
+        <details class="card overflow-hidden group" open>
+          <summary class="p-5 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+            <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              リマインド設定
+            </h2>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="px-5 pb-5 border-t border-slate-100 pt-3">
+          <h3 class="text-xs font-bold text-slate-500 mb-2">リマインドスケジュール</h3>
           <div id="reminder-items">
             {(reminderConfig.pre_consultation || []).map((r: { timing: string; type: string; content?: string; purpose?: string }, i: number) => (
               <ReminderItemRow reminder={r} index={i} />
@@ -1175,11 +1263,15 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               <input type="text" name="followup_escalation_message" value={reminderConfig.no_response_follow_up?.escalation_message || ''} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
           </div>
-        </div>
+          </div>
+        </details>
 
-        {/* Tone - Structured Form */}
-        <div class="border-t pt-4">
-          <h3 class="text-sm font-bold mb-2">トーン設定</h3>
+        {/* Tone */}
+        <div class="card p-6">
+          <h2 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+            トーン設定
+          </h2>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="block text-xs text-gray-500 mb-1">パーソナリティ</label>
@@ -1212,9 +1304,12 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           </div>
         </div>
 
-        {/* Guardrail - Structured Form */}
-        <div class="border-t pt-4">
-          <h3 class="text-sm font-bold mb-2">ガードレール設定</h3>
+        {/* Guardrail */}
+        <div class="card p-6">
+          <h2 class="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            ガードレール設定
+          </h2>
           <div class="space-y-2">
             <div>
               <label class="block text-xs text-gray-500 mb-1">禁止トピック（カンマ区切り）</label>
@@ -1235,9 +1330,16 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           </div>
         </div>
 
-        {/* Notification - Structured Form */}
-        <div class="border-t pt-4">
-          <h3 class="text-sm font-bold mb-2">スタッフ通知設定</h3>
+        {/* Notification */}
+        <details class="card overflow-hidden group">
+          <summary class="p-5 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+            <h2 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              スタッフ通知設定
+            </h2>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="px-5 pb-5 border-t border-slate-100 pt-3">
           <div class="space-y-2">
             <div class="flex gap-4">
               <label class="flex items-center gap-1 text-sm">
@@ -1263,19 +1365,20 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </details>
 
-        <div class="flex gap-2 items-center border-t pt-4">
-          <button type="submit" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">更新</button>
-          <span class={`px-3 py-2 rounded text-sm ${tenant.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {tenant.is_active ? '有効' : '無効'}
-          </span>
-        </div>
-        </form>
-        <form method="post" action={`/admin/tenants/${id}/toggle`} class="mt-4">
-          <button type="submit" class={`px-4 py-2 rounded text-sm ${tenant.is_active ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}>
-            {tenant.is_active ? 'テナントを無効化' : 'テナントを有効化'}
+        {/* Submit */}
+        <div class="flex items-center gap-3">
+          <button type="submit" class="gradient-hero text-white px-8 py-3 rounded-xl hover:opacity-90 transition text-sm font-bold shadow-lg shadow-indigo-500/20 active:scale-[0.98]">
+            設定を保存
           </button>
+          <form method="post" action={`/admin/tenants/${id}/toggle`}>
+            <button type="submit" class={`px-5 py-3 rounded-xl text-sm font-medium transition ${tenant.is_active ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100'}`}>
+              {tenant.is_active ? 'テナントを無効化' : 'テナントを有効化'}
+            </button>
+          </form>
+        </div>
       </form>
     </Layout>
   );
