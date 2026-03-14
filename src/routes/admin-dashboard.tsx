@@ -2993,32 +2993,33 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
   return c.html(
     <Layout title={`AIシミュレーター - ${tenant.name}`}>
       <div class="max-w-3xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <a href={`/admin/tenants/${id}`} class="text-sm text-gray-500 hover:text-gray-700">&larr; {tenant.name}</a>
-            <h1 class="text-2xl font-bold mt-1">AIシミュレーター</h1>
-            <p class="text-sm text-gray-500 mt-1">テストユーザーとしてAIと会話してみましょう。実際のLINEメッセージは送信されません。</p>
-          </div>
+        <div class="mb-6">
+          <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            {tenant.name}
+          </a>
+          <h1 class="text-xl font-bold text-slate-800">AIシミュレーター</h1>
+          <p class="text-sm text-slate-400 mt-1">テストユーザーとしてAIと会話。実際のメッセージは送信されません。</p>
         </div>
 
-        {/* Simulator Config */}
-        <div class="bg-white rounded-lg shadow-sm border p-4 mb-4">
+        {/* Config */}
+        <div class="card p-4 mb-4">
           <div class="grid grid-cols-3 gap-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">テストユーザー名</label>
-              <input id="sim-name" type="text" value="テストユーザー" class="w-full border rounded px-3 py-1.5 text-sm" />
+              <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">テストユーザー名</label>
+              <input id="sim-name" type="text" value="テストユーザー" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">ステップ</label>
-              <select id="sim-step" class="w-full border rounded px-3 py-1.5 text-sm">
+              <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">ステップ</label>
+              <select id="sim-step" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">
                 {aiSteps.map(s => <option value={s.id}>{s.id}</option>)}
                 <option value="booking_invite">booking_invite</option>
                 <option value="booked">booked（予約後）</option>
               </select>
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">ステータス</label>
-              <select id="sim-status" class="w-full border rounded px-3 py-1.5 text-sm">
+              <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">ステータス</label>
+              <select id="sim-status" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">
                 <option value="active">active</option>
                 <option value="booked">booked</option>
                 <option value="consulted">consulted</option>
@@ -3028,23 +3029,33 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
         </div>
 
         {/* Chat Area */}
-        <div class="bg-white rounded-lg shadow-sm border overflow-hidden" style="height: 520px; display: flex; flex-direction: column;">
-          <div class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 flex justify-between items-center">
-            <span class="font-medium text-sm">AI会話プレビュー</span>
-            <button id="sim-reset" class="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded transition">リセット</button>
+        <div class="card overflow-hidden" style="height: 520px; display: flex; flex-direction: column;">
+          <div class="gradient-dark text-white px-5 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded-lg bg-white/15 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              </div>
+              <span class="font-semibold text-sm">AI会話プレビュー</span>
+            </div>
+            <button id="sim-reset" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition border border-white/10">リセット</button>
           </div>
 
-          <div id="sim-messages" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50" style="scroll-behavior: smooth;">
-            <div class="text-center text-xs text-gray-400 py-8">メッセージを入力してAIの応答を確認してください</div>
+          <div id="sim-messages" class="flex-1 overflow-y-auto p-5 space-y-3 bg-[#f0f2f5] custom-scrollbar" style="scroll-behavior: smooth;">
+            <div class="text-center py-12">
+              <div class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center mx-auto mb-3">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              </div>
+              <p class="text-xs text-slate-400">メッセージを入力してAIの応答を確認</p>
+            </div>
           </div>
 
-          <div class="border-t p-3 bg-white">
+          <div class="border-t border-slate-100 p-4 bg-white">
             <div class="flex gap-2">
-              <input id="sim-input" type="text" placeholder="メッセージを入力..." class="flex-1 border rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              <button id="sim-send" class="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed">送信</button>
+              <input id="sim-input" type="text" placeholder="メッセージを入力..." class="flex-1 border border-slate-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+              <button id="sim-send" class="gradient-hero text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:opacity-90 transition shadow-md shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">送信</button>
             </div>
             <div id="sim-meta" class="mt-2 hidden">
-              <div class="text-xs text-gray-400 space-y-0.5">
+              <div class="text-xs text-slate-400 space-y-0.5 bg-slate-50 rounded-lg p-2">
                 <div id="sim-extracted" class="hidden"></div>
                 <div id="sim-insight" class="hidden"></div>
                 <div id="sim-intent" class="hidden"></div>
@@ -3054,9 +3065,9 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
         </div>
 
         {/* Quick test scenarios */}
-        <div class="mt-4 bg-white rounded-lg shadow-sm border p-4">
-          <p class="text-xs font-medium text-gray-600 mb-2">クイックテスト（クリックで送信）</p>
-          <div class="flex flex-wrap gap-2">
+        <div class="mt-4 card p-4">
+          <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">クイックテスト</p>
+          <div class="flex flex-wrap gap-1.5">
             {[
               'プログラミングに興味があります',
               '転職を考えています',
@@ -3067,7 +3078,7 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
               '人と話したい',
               '日程を変更したいです',
             ].map(msg => (
-              <button class="sim-quick text-xs bg-gray-100 hover:bg-indigo-50 hover:text-indigo-600 px-3 py-1.5 rounded-full transition border border-transparent hover:border-indigo-200" data-msg={msg}>{msg}</button>
+              <button class="sim-quick text-xs bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 px-3 py-1.5 rounded-lg transition border border-slate-200 hover:border-indigo-200 font-medium" data-msg={msg}>{msg}</button>
             ))}
           </div>
         </div>
@@ -3086,11 +3097,12 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
 
   function addBubble(text, isUser) {
     const wrapper = document.createElement('div');
-    wrapper.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start');
+    wrapper.className = 'flex ' + (isUser ? 'justify-end' : 'justify-start') + ' slide-in';
     const bubble = document.createElement('div');
     bubble.className = isUser
-      ? 'max-w-[75%] bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2 text-sm'
-      : 'max-w-[75%] bg-white border rounded-2xl rounded-tl-sm px-4 py-2 text-sm shadow-sm';
+      ? 'max-w-[75%] bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm shadow-sm'
+      : 'max-w-[75%] bg-white rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm shadow-sm';
+    bubble.style.whiteSpace = 'pre-wrap';
     bubble.textContent = text;
     wrapper.appendChild(bubble);
     messagesEl.appendChild(wrapper);
@@ -3101,7 +3113,7 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
     const wrapper = document.createElement('div');
     wrapper.id = 'typing';
     wrapper.className = 'flex justify-start';
-    wrapper.innerHTML = '<div class="bg-white border rounded-2xl rounded-tl-sm px-4 py-2 text-sm shadow-sm text-gray-400">入力中...</div>';
+    wrapper.innerHTML = '<div class="bg-white rounded-2xl rounded-tl-sm px-4 py-3 text-sm shadow-sm flex gap-1.5"><span class="w-2 h-2 rounded-full bg-slate-300 typing-dot"></span><span class="w-2 h-2 rounded-full bg-slate-300 typing-dot"></span><span class="w-2 h-2 rounded-full bg-slate-300 typing-dot"></span></div>';
     messagesEl.appendChild(wrapper);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
@@ -3186,7 +3198,7 @@ dashboard.get('/admin/tenants/:id/simulator', async (c) => {
   document.getElementById('sim-reset').addEventListener('click', () => {
     history = [];
     hearingData = {};
-    messagesEl.innerHTML = '<div class="text-center text-xs text-gray-400 py-8">メッセージを入力してAIの応答を確認してください</div>';
+    messagesEl.innerHTML = '<div class="text-center py-12"><div class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center mx-auto mb-3"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><p class="text-xs text-slate-400">メッセージを入力してAIの応答を確認</p></div>';
     metaEl.classList.add('hidden');
   });
   document.querySelectorAll('.sim-quick').forEach(btn => {
