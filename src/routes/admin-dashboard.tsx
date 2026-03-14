@@ -1437,16 +1437,22 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
 
   return c.html(
     <Layout title="ユーザー一覧">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - ユーザー一覧</h1>
-        <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant?.name}
+        </a>
+        <div class="flex items-center justify-between">
+          <h1 class="text-xl font-bold text-slate-800">ユーザー一覧</h1>
+          <span class="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">{(users || []).length}件</span>
+        </div>
       </div>
 
       {/* Status filter */}
-      <div class="mb-4 flex gap-2 flex-wrap">
-        <a href={`/admin/tenants/${id}/users`} class={`px-3 py-1 rounded text-sm ${!statusFilter ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>全て</a>
+      <div class="mb-5 flex gap-1.5 flex-wrap">
+        <a href={`/admin/tenants/${id}/users`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!statusFilter ? 'gradient-hero text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
         {['active', 'booked', 'consulted', 'enrolled', 'stalled', 'dropped'].map((s) => (
-          <a href={`/admin/tenants/${id}/users?status=${s}`} class={`px-3 py-1 rounded text-sm ${statusFilter === s ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>{statusLabel(s)}</a>
+          <a href={`/admin/tenants/${id}/users?status=${s}`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === s ? 'gradient-hero text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{statusLabel(s)}</a>
         ))}
       </div>
 
@@ -1566,9 +1572,12 @@ dashboard.get('/admin/tenants/:id/users/:userId', async (c) => {
 
   return c.html(
     <Layout title={user.display_name || 'ユーザー詳細'}>
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{user.display_name || '(名前なし)'}</h1>
-        <a href={`/admin/tenants/${tenantId}/users`} class="text-indigo-600 hover:underline text-sm">一覧に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${tenantId}/users`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          ユーザー一覧
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">{user.display_name || '(名前なし)'}</h1>
       </div>
 
       <div class="grid grid-cols-3 gap-6">
@@ -1846,9 +1855,12 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
 
   return c.html(
     <Layout title="分析">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - 詳細分析</h1>
-        <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant?.name}
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">詳細分析</h1>
       </div>
 
       {analytics ? (
@@ -2117,9 +2129,12 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
 
   return c.html(
     <Layout title="予約管理">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - 予約管理</h1>
-        <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant?.name}
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">予約管理</h1>
       </div>
 
       {/* Status filter */}
@@ -2287,9 +2302,12 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
 
   return c.html(
     <Layout title="スケジュール済みアクション">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - アクション管理</h1>
-        <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant?.name}
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">アクション管理</h1>
       </div>
 
       <div class="mb-4 flex gap-2">
@@ -2538,13 +2556,23 @@ dashboard.get('/admin/system', async (c) => {
 
   return c.html(
     <Layout title="システム状態">
-      <h1 class="text-2xl font-bold mb-6">システム状態</h1>
-
-      <div class={`p-4 rounded mb-6 ${systemOk ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-        <p class={`text-lg font-bold ${systemOk ? 'text-green-700' : 'text-red-700'}`}>
-          {systemOk ? '正常稼働中' : '要確認'}
-        </p>
-        <p class="text-sm text-gray-600 mt-1">最終確認: {formatDateTimeJST(now.toISOString())}</p>
+      <div class="mb-8">
+        <h1 class="text-xl font-bold text-slate-800 mb-4">システム状態</h1>
+        <div class={`card p-5 flex items-center gap-4 ${systemOk ? 'border-l-4 border-l-emerald-400' : 'border-l-4 border-l-red-400'}`}>
+          <div class={`w-10 h-10 rounded-xl flex items-center justify-center ${systemOk ? 'bg-emerald-50' : 'bg-red-50'}`}>
+            {systemOk ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            )}
+          </div>
+          <div>
+            <p class={`font-bold ${systemOk ? 'text-emerald-700' : 'text-red-700'}`}>
+              {systemOk ? '正常稼働中' : '要確認'}
+            </p>
+            <p class="text-xs text-slate-400">最終確認: {formatDateTimeJST(now.toISOString())}</p>
+          </div>
+        </div>
       </div>
 
       <div class="grid grid-cols-4 gap-4 mb-6">
@@ -2626,9 +2654,12 @@ dashboard.get('/admin/tenants/:id/slots', async (c) => {
 
   return c.html(
     <Layout title="予約枠管理">
-      <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">{tenant?.name} - 予約枠管理</h1>
-        <a href={`/admin/tenants/${id}`} class="text-indigo-600 hover:underline text-sm">テナント詳細に戻る</a>
+      <div class="mb-6">
+        <a href={`/admin/tenants/${id}`} class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          {tenant?.name}
+        </a>
+        <h1 class="text-xl font-bold text-slate-800">予約枠管理</h1>
       </div>
 
       {/* Add slot form */}
@@ -2717,9 +2748,9 @@ dashboard.post('/admin/tenants/:id/slots/:slotId/delete', async (c) => {
 
 // --- Helper components ---
 const MetricCard: FC<{ label: string; value: unknown; highlight?: boolean }> = ({ label, value, highlight }) => (
-  <div class={`p-4 rounded shadow ${highlight ? 'bg-indigo-600 text-white' : 'bg-white'}`}>
-    <p class={`text-sm ${highlight ? 'text-indigo-200' : 'text-gray-500'}`}>{label}</p>
-    <p class="text-2xl font-bold">{String(value)}</p>
+  <div class={`card p-4 ${highlight ? 'gradient-hero text-white shadow-lg shadow-indigo-500/15' : ''}`}>
+    <p class={`text-xs font-medium uppercase tracking-wider ${highlight ? 'text-white/60' : 'text-slate-400'}`}>{label}</p>
+    <p class="text-2xl font-extrabold mt-1">{String(value)}</p>
   </div>
 );
 
