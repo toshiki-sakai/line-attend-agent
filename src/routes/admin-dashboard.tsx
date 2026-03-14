@@ -197,17 +197,23 @@ const Layout: FC<{ title: string; children: unknown }> = ({ title, children }) =
         </div>
 
         {/* Navigation */}
-        <nav class="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
-          <p class="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">メイン</p>
+        <nav class="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto custom-scrollbar">
+          <p class="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">メイン</p>
           <a href="/admin/" class="sidebar-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             ホーム
           </a>
 
-          <p class="px-3 pt-5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">管理</p>
+          <p class="px-3 pt-5 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">運用</p>
           <a href="/admin/system" class="sidebar-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             システム状態
+          </a>
+
+          <p class="px-3 pt-5 pb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">ヘルプ</p>
+          <a href="/admin/guide" class="sidebar-link">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            使い方ガイド
           </a>
         </nav>
 
@@ -2189,6 +2195,146 @@ dashboard.post('/admin/tenants/:id/actions/:actionId/cancel', async (c) => {
     .eq('tenant_id', id)
     .in('status', ['pending', 'processing']);
   return c.redirect(`/admin/tenants/${id}/actions`);
+});
+
+// --- Getting Started Guide ---
+dashboard.get('/admin/guide', (c) => {
+  return c.html(
+    <Layout title="使い方ガイド">
+      <div class="max-w-3xl mx-auto">
+        <div class="mb-8">
+          <h1 class="text-2xl font-bold text-slate-800">使い方ガイド</h1>
+          <p class="text-slate-500 text-sm mt-1">LINE Attend Agentを使い始めるためのステップバイステップガイドです</p>
+        </div>
+
+        {/* Step-by-step guide */}
+        <div class="space-y-6">
+          {/* Step 1 */}
+          <div class="card p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-1 h-full bg-indigo-500 rounded-r"></div>
+            <div class="flex items-start gap-4 pl-4">
+              <div class="w-10 h-10 rounded-xl gradient-hero flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">1</div>
+              <div class="flex-1">
+                <h3 class="font-bold text-slate-800 text-lg">テナントを作成する</h3>
+                <p class="text-slate-500 text-sm mt-1 leading-relaxed">
+                  テナントはあなたのスクールやビジネスの設定単位です。スクール名とAIの基本設定を登録しましょう。
+                </p>
+                <a href="/admin/tenants/new" class="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold mt-3 transition">
+                  テナントを作成する
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div class="card p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-1 h-full bg-emerald-500 rounded-r"></div>
+            <div class="flex items-start gap-4 pl-4">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">2</div>
+              <div class="flex-1">
+                <h3 class="font-bold text-slate-800 text-lg">APIキーを発行する</h3>
+                <p class="text-slate-500 text-sm mt-1 leading-relaxed">
+                  テナント詳細画面で「APIキーを生成」ボタンを押します。生成されたキーはLステップの設定に使います。
+                </p>
+                <div class="mt-3 bg-amber-50 border border-amber-100 rounded-lg px-4 py-2.5">
+                  <p class="text-amber-700 text-xs flex items-start gap-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0 mt-0.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    APIキーは一度しか表示されません。安全な場所に保管してください。
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div class="card p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-1 h-full bg-purple-500 rounded-r"></div>
+            <div class="flex items-start gap-4 pl-4">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">3</div>
+              <div class="flex-1">
+                <h3 class="font-bold text-slate-800 text-lg">Lステップと接続する</h3>
+                <p class="text-slate-500 text-sm mt-1 leading-relaxed">
+                  LステップのWebhookアクションに以下のURLを設定してAIエンジンと接続します。
+                </p>
+                <div class="mt-3 bg-slate-50 rounded-lg p-4 space-y-3">
+                  <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">ヒアリング開始</p>
+                    <code class="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded break-all">POST /api/v1/hearing/start</code>
+                  </div>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">ユーザー返信処理</p>
+                    <code class="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded break-all">POST /api/v1/hearing/respond</code>
+                  </div>
+                  <div>
+                    <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">AIメッセージ生成</p>
+                    <code class="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded break-all">POST /api/v1/message/generate</code>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 4 */}
+          <div class="card p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-1 h-full bg-amber-500 rounded-r"></div>
+            <div class="flex items-start gap-4 pl-4">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">4</div>
+              <div class="flex-1">
+                <h3 class="font-bold text-slate-800 text-lg">AIシミュレーターでテスト</h3>
+                <p class="text-slate-500 text-sm mt-1 leading-relaxed">
+                  テナント詳細画面の「AIシミュレーター」でAIの応答をテストできます。実際のメッセージは送信されないので安心です。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 5 */}
+          <div class="card p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-1 h-full bg-blue-500 rounded-r"></div>
+            <div class="flex items-start gap-4 pl-4">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">5</div>
+              <div class="flex-1">
+                <h3 class="font-bold text-slate-800 text-lg">運用開始 & 分析</h3>
+                <p class="text-slate-500 text-sm mt-1 leading-relaxed">
+                  Lステップから本番接続したら、ダッシュボードでAIの性能・着座率・リードスコアをリアルタイムに確認できます。
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* API Reference Quick Guide */}
+        <div class="mt-10 card p-6">
+          <h2 class="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>
+            APIエンドポイント一覧
+          </h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-[10px] text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  <th class="text-left py-2.5 font-semibold">エンドポイント</th>
+                  <th class="text-left py-2.5 font-semibold">説明</th>
+                  <th class="text-left py-2.5 font-semibold">用途</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-50">
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /hearing/start</code></td><td class="py-2.5 text-slate-600">ヒアリング開始</td><td class="py-2.5 text-slate-400">友だち追加後に呼出</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /hearing/respond</code></td><td class="py-2.5 text-slate-600">ヒアリング応答</td><td class="py-2.5 text-slate-400">ユーザー返信ごとに呼出</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /message/generate</code></td><td class="py-2.5 text-slate-600">AI メッセージ生成</td><td class="py-2.5 text-slate-400">ナーチャー・フォローなど</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /intent/detect</code></td><td class="py-2.5 text-slate-600">意図検知</td><td class="py-2.5 text-slate-400">条件分岐で使用</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /risk/no-show</code></td><td class="py-2.5 text-slate-600">ノーショーリスク</td><td class="py-2.5 text-slate-400">リスク予測</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">POST /score/lead</code></td><td class="py-2.5 text-slate-600">リードスコア</td><td class="py-2.5 text-slate-400">成約確率算出</td></tr>
+                <tr><td class="py-2.5"><code class="text-xs text-indigo-600">GET /user/:id/profile</code></td><td class="py-2.5 text-slate-600">ユーザー情報</td><td class="py-2.5 text-slate-400">AI enriched情報</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-slate-400 mt-4">全リクエストに <code class="bg-slate-100 px-1 rounded">Authorization: Bearer &lt;api_key&gt;</code> ヘッダーが必要です</p>
+        </div>
+      </div>
+    </Layout>
+  );
 });
 
 // --- System Health Dashboard ---
