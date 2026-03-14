@@ -256,18 +256,63 @@ dashboard.get('/admin/login', (c) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>ログイン - LINE Attend Agent</title>
         <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <script dangerouslySetInnerHTML={{__html: `tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','Noto Sans JP','system-ui','sans-serif']}}}}`}} />
+        <style dangerouslySetInnerHTML={{__html: `
+          @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-6px); } }
+          @keyframes fade-up { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+          .float-gentle { animation: float 3s ease-in-out infinite; }
+          .fade-up { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+          .fade-up-delay { animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+        `}} />
       </head>
-      <body class="bg-gray-50 min-h-screen flex items-center justify-center">
-        <div class="bg-white p-8 rounded-lg shadow-md w-96">
-          <h1 class="text-2xl font-bold mb-6 text-center">管理ログイン</h1>
-          {error && <p class="text-red-500 mb-4 text-sm">認証キーが正しくありません</p>}
-          <form method="post" action="/admin/login">
-            <label class="block mb-2 text-sm font-medium">管理キー</label>
-            <input type="password" name="key" class="w-full border rounded px-3 py-2 mb-4" required />
-            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700">
-              ログイン
-            </button>
-          </form>
+      <body class="min-h-screen font-sans antialiased flex items-center justify-center relative overflow-hidden" style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 70%, #4f46e5 100%)">
+        {/* Background decoration */}
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+          <div class="absolute top-1/4 -left-20 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl"></div>
+          <div class="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
+          <div class="absolute top-10 right-1/4 w-48 h-48 bg-blue-500/5 rounded-full blur-2xl"></div>
+        </div>
+
+        <div class="relative z-10 w-full max-w-sm mx-4">
+          {/* Logo */}
+          <div class="text-center mb-8 fade-up">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl shadow-indigo-500/30 mb-4 float-gentle">
+              <span class="text-white text-xl font-extrabold">AI</span>
+            </div>
+            <h1 class="text-2xl font-bold text-white">Attend Agent</h1>
+            <p class="text-indigo-300/70 text-sm mt-1">AIコンシェルジュ管理画面</p>
+          </div>
+
+          {/* Login Card */}
+          <div class="fade-up-delay bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
+            {error && (
+              <div class="mb-4 px-4 py-3 rounded-xl bg-red-500/15 border border-red-400/20">
+                <p class="text-red-300 text-sm flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  認証キーが正しくありません
+                </p>
+              </div>
+            )}
+            <form method="post" action="/admin/login">
+              <label class="block mb-2 text-sm font-medium text-indigo-200">管理キー</label>
+              <input
+                type="password"
+                name="key"
+                required
+                autofocus
+                placeholder="管理キーを入力..."
+                class="w-full bg-white/10 border border-white/15 rounded-xl px-4 py-3 text-white placeholder-indigo-300/40 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 focus:border-transparent transition mb-5"
+              />
+              <button type="submit" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-indigo-400 hover:to-purple-500 transition-all shadow-lg shadow-indigo-500/25 active:scale-[0.98]">
+                ログイン
+              </button>
+            </form>
+          </div>
+
+          <p class="text-center text-indigo-400/40 text-xs mt-6">LINE Attend Agent v2.0</p>
         </div>
       </body>
     </html>
@@ -325,196 +370,235 @@ dashboard.get('/admin/', async (c) => {
   const totalNoShows = Object.values(missions).reduce((s, m) => s + m.no_shows_to_recover, 0);
   const totalMissionItems = totalHotLeads + totalNeedsManual + totalConsultationsToday + totalNoShows;
 
+  const greeting = new Date().getHours() < 12 ? 'おはようございます' : new Date().getHours() < 18 ? 'こんにちは' : 'お疲れ様です';
+
   return c.html(
     <Layout title="ダッシュボード">
-      <div class="flex justify-between items-center mb-8">
+      {/* Header with greeting */}
+      <div class="flex justify-between items-start mb-8">
         <div>
-          <h1 class="text-3xl font-bold text-slate-800">ダッシュボード</h1>
-          <p class="text-slate-500 text-sm mt-1">全テナント横断サマリー</p>
+          <p class="text-slate-400 text-sm mb-1">{greeting}</p>
+          <h1 class="text-2xl font-bold text-slate-800">ダッシュボード</h1>
         </div>
-        <a href="/admin/tenants/new" class="gradient-hero text-white px-5 py-2.5 rounded-lg hover:opacity-90 transition shadow-md text-sm font-medium">
-          + 新規テナント
+        <a href="/admin/tenants/new" class="inline-flex items-center gap-2 gradient-hero text-white px-5 py-2.5 rounded-xl hover:opacity-90 transition shadow-lg shadow-indigo-500/20 text-sm font-semibold">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          新規テナント
         </a>
       </div>
 
-      {/* TODAY'S MISSION - The killer morning briefing */}
+      {/* TODAY'S MISSION */}
       {totalMissionItems > 0 && (
-        <div class="mb-8 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 rounded-2xl p-6 text-white shadow-xl mission-glow slide-in">
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h2 class="text-lg font-bold">今日のミッション</h2>
-              <p class="text-white/70 text-sm">優先度の高い{totalMissionItems}件のアクションがあります</p>
+        <div class="mb-8 gradient-dark rounded-2xl p-6 text-white shadow-xl slide-in overflow-hidden relative">
+          <div class="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+          <div class="relative">
+            <div class="flex items-center gap-3 mb-5">
+              <div class="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              </div>
+              <div>
+                <h2 class="font-bold text-base">今日のミッション</h2>
+                <p class="text-white/50 text-xs">{totalMissionItems}件のアクション</p>
+              </div>
             </div>
-            <div class="bg-white/20 rounded-full px-4 py-1 text-sm font-bold">{totalMissionItems}</div>
-          </div>
-          <div class="grid grid-cols-4 gap-4">
-            {totalConsultationsToday > 0 && (
-              <div class="bg-white/15 rounded-xl p-4 backdrop-blur-sm">
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="w-2 h-2 rounded-full bg-red-400 pulse-dot"></span>
-                  <span class="text-xs font-bold text-red-200 uppercase">CRITICAL</span>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {totalConsultationsToday > 0 && (
+                <div class="bg-white/[0.08] rounded-xl p-4 border border-white/[0.06] hover:bg-white/[0.12] transition">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="w-2 h-2 rounded-full bg-red-400 pulse-dot"></span>
+                    <span class="text-[10px] font-bold text-red-300 uppercase tracking-wider">CRITICAL</span>
+                  </div>
+                  <p class="text-3xl font-extrabold tracking-tight">{totalConsultationsToday}</p>
+                  <p class="text-white/50 text-xs mt-1.5">本日の相談会</p>
                 </div>
-                <p class="text-2xl font-bold">{totalConsultationsToday}</p>
-                <p class="text-white/80 text-xs mt-1">本日の相談会</p>
-              </div>
-            )}
-            {totalHotLeads > 0 && (
-              <div class="bg-white/15 rounded-xl p-4 backdrop-blur-sm">
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="w-2 h-2 rounded-full bg-orange-400 pulse-dot"></span>
-                  <span class="text-xs font-bold text-orange-200 uppercase">HOT</span>
+              )}
+              {totalHotLeads > 0 && (
+                <div class="bg-white/[0.08] rounded-xl p-4 border border-white/[0.06] hover:bg-white/[0.12] transition">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="w-2 h-2 rounded-full bg-orange-400 pulse-dot"></span>
+                    <span class="text-[10px] font-bold text-orange-300 uppercase tracking-wider">HOT</span>
+                  </div>
+                  <p class="text-3xl font-extrabold tracking-tight">{totalHotLeads}</p>
+                  <p class="text-white/50 text-xs mt-1.5">反応ありリード</p>
                 </div>
-                <p class="text-2xl font-bold">{totalHotLeads}</p>
-                <p class="text-white/80 text-xs mt-1">反応ありリード</p>
-              </div>
-            )}
-            {totalNoShows > 0 && (
-              <div class="bg-white/15 rounded-xl p-4 backdrop-blur-sm">
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-                  <span class="text-xs font-bold text-amber-200 uppercase">RECOVERY</span>
+              )}
+              {totalNoShows > 0 && (
+                <div class="bg-white/[0.08] rounded-xl p-4 border border-white/[0.06] hover:bg-white/[0.12] transition">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wider">RECOVERY</span>
+                  </div>
+                  <p class="text-3xl font-extrabold tracking-tight">{totalNoShows}</p>
+                  <p class="text-white/50 text-xs mt-1.5">ノーショー回復</p>
                 </div>
-                <p class="text-2xl font-bold">{totalNoShows}</p>
-                <p class="text-white/80 text-xs mt-1">ノーショー回復</p>
-              </div>
-            )}
-            {totalNeedsManual > 0 && (
-              <div class="bg-white/15 rounded-xl p-4 backdrop-blur-sm">
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
-                  <span class="text-xs font-bold text-yellow-200 uppercase">MANUAL</span>
+              )}
+              {totalNeedsManual > 0 && (
+                <div class="bg-white/[0.08] rounded-xl p-4 border border-white/[0.06] hover:bg-white/[0.12] transition">
+                  <div class="flex items-center gap-2 mb-3">
+                    <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                    <span class="text-[10px] font-bold text-yellow-300 uppercase tracking-wider">MANUAL</span>
+                  </div>
+                  <p class="text-3xl font-extrabold tracking-tight">{totalNeedsManual}</p>
+                  <p class="text-white/50 text-xs mt-1.5">手動対応必要</p>
                 </div>
-                <p class="text-2xl font-bold">{totalNeedsManual}</p>
-                <p class="text-white/80 text-xs mt-1">手動対応必要</p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* KPI Cards */}
       {metrics.length > 0 && (
-        <div class="grid grid-cols-4 gap-5 mb-8">
-          <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">総ユーザー</p>
-            <p class="text-3xl font-bold text-slate-800 mt-1">{totalUsers}</p>
-            <div class="mt-2 flex items-center gap-1">
-              <div class="w-full bg-slate-100 rounded-full h-1.5">
-                <div class="bg-blue-500 h-1.5 rounded-full health-bar" style={`width: ${totalUsers > 0 ? 100 : 0}%`}></div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div class="card p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
               </div>
+              <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">総ユーザー</p>
             </div>
+            <p class="text-3xl font-extrabold text-slate-800 count-up">{totalUsers}</p>
           </div>
-          <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">予約済み</p>
-            <p class="text-3xl font-bold text-amber-600 mt-1">{totalBooked}</p>
-            <p class="text-xs text-slate-400 mt-2">{totalUsers > 0 ? Math.round(totalBooked / totalUsers * 100) : 0}% of total</p>
+          <div class="card p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              </div>
+              <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">予約済み</p>
+            </div>
+            <p class="text-3xl font-extrabold text-amber-600 count-up">{totalBooked}</p>
+            <p class="text-xs text-slate-400 mt-1">{totalUsers > 0 ? Math.round(totalBooked / totalUsers * 100) : 0}%</p>
           </div>
-          <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
-            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">相談済み</p>
-            <p class="text-3xl font-bold text-emerald-600 mt-1">{totalConsulted}</p>
-            <p class="text-xs text-slate-400 mt-2">{totalBooked > 0 ? Math.round(totalConsulted / totalBooked * 100) : 0}% 着座率</p>
+          <div class="card p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+              <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">相談済み</p>
+            </div>
+            <p class="text-3xl font-extrabold text-emerald-600 count-up">{totalConsulted}</p>
+            <p class="text-xs text-slate-400 mt-1">{totalBooked > 0 ? Math.round(totalConsulted / totalBooked * 100) : 0}% 着座率</p>
           </div>
-          <div class="gradient-hero p-5 rounded-xl shadow-md text-white">
-            <p class="text-xs font-medium text-white/70 uppercase tracking-wider">入会済み</p>
-            <p class="text-3xl font-bold mt-1">{totalEnrolled}</p>
-            <p class="text-xs text-white/70 mt-2">全体CVR: {totalUsers > 0 ? Math.round(totalEnrolled / totalUsers * 100) : 0}%</p>
+          <div class="gradient-hero p-5 rounded-2xl shadow-lg shadow-indigo-500/15 text-white">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              </div>
+              <p class="text-xs font-medium text-white/60 uppercase tracking-wider">成約</p>
+            </div>
+            <p class="text-3xl font-extrabold count-up">{totalEnrolled}</p>
+            <p class="text-xs text-white/60 mt-1">CVR {totalUsers > 0 ? Math.round(totalEnrolled / totalUsers * 100) : 0}%</p>
           </div>
         </div>
       )}
 
-      <div class="grid grid-cols-3 gap-6 mb-8">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Tenant list */}
-        <div class="col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div class="lg:col-span-2 card overflow-hidden">
           <div class="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
-            <h2 class="font-bold text-slate-700">テナント</h2>
-            <span class="text-xs text-slate-400">{(tenants || []).length}件</span>
+            <div class="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+              <h2 class="font-bold text-slate-700">テナント</h2>
+            </div>
+            <span class="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">{(tenants || []).length}件</span>
           </div>
-          <table class="w-full">
-            <thead>
-              <tr class="text-xs text-slate-400 uppercase tracking-wider">
-                <th class="text-left px-5 py-3 font-medium">名前</th>
-                <th class="text-left px-5 py-3 font-medium">状態</th>
-                <th class="text-right px-5 py-3 font-medium">ユーザー</th>
-                <th class="text-right px-5 py-3 font-medium">着座率</th>
-                <th class="text-center px-5 py-3 font-medium">ミッション</th>
-                <th class="text-right px-5 py-3 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {(tenants || []).map((t) => {
-                const m = metrics.find((met) => met.tenant_id === t.id);
-                const mission = missions[t.id];
-                const missionCount = mission ? mission.priority_actions.reduce((s, a) => s + a.count, 0) : 0;
-                return (
-                  <tr class="border-t border-slate-50 hover:bg-slate-50/50 transition">
-                    <td class="px-5 py-3">
-                      <a href={`/admin/tenants/${t.id}`} class="font-medium text-slate-700 hover:text-indigo-600 transition">{t.name}</a>
-                    </td>
-                    <td class="px-5 py-3">
-                      {t.is_active ? (
-                        <span class="flex items-center gap-1.5 text-xs text-emerald-600">
-                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>稼働中
-                        </span>
-                      ) : (
-                        <span class="text-xs text-slate-400">停止</span>
-                      )}
-                    </td>
-                    <td class="px-5 py-3 text-right font-medium text-slate-600">{m?.total_users ?? 0}</td>
-                    <td class="px-5 py-3 text-right">
-                      {m?.attendance_rate != null ? (
-                        <span class={`font-bold text-sm ${(m.attendance_rate || 0) >= 60 ? 'text-emerald-600' : (m.attendance_rate || 0) >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
-                          {m.attendance_rate}%
-                        </span>
-                      ) : <span class="text-slate-300">-</span>}
-                    </td>
-                    <td class="px-5 py-3 text-center">
-                      {missionCount > 0 ? (
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                          <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-dot"></span>{missionCount}
-                        </span>
-                      ) : <span class="text-xs text-slate-300">-</span>}
-                    </td>
-                    <td class="px-5 py-3 text-right">
-                      <div class="flex gap-2 justify-end">
-                        <a href={`/admin/tenants/${t.id}/users`} class="text-xs text-slate-400 hover:text-indigo-600 transition">ユーザー</a>
-                        <a href={`/admin/tenants/${t.id}/analytics`} class="text-xs text-slate-400 hover:text-indigo-600 transition">分析</a>
-                        <a href={`/admin/tenants/${t.id}/bookings`} class="text-xs text-slate-400 hover:text-indigo-600 transition">予約</a>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+                  <th class="text-left px-5 py-2.5 font-semibold">名前</th>
+                  <th class="text-left px-5 py-2.5 font-semibold">状態</th>
+                  <th class="text-right px-5 py-2.5 font-semibold">ユーザー</th>
+                  <th class="text-right px-5 py-2.5 font-semibold">着座率</th>
+                  <th class="text-center px-5 py-2.5 font-semibold">ミッション</th>
+                  <th class="text-right px-5 py-2.5 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(tenants || []).map((t) => {
+                  const m = metrics.find((met) => met.tenant_id === t.id);
+                  const mission = missions[t.id];
+                  const missionCount = mission ? mission.priority_actions.reduce((s, a) => s + a.count, 0) : 0;
+                  return (
+                    <tr class="border-t border-slate-50 hover:bg-slate-50/50 transition group">
+                      <td class="px-5 py-3.5">
+                        <a href={`/admin/tenants/${t.id}`} class="font-semibold text-slate-700 hover:text-indigo-600 transition">{t.name}</a>
+                      </td>
+                      <td class="px-5 py-3.5">
+                        {t.is_active ? (
+                          <span class="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot"></span>稼働中
+                          </span>
+                        ) : (
+                          <span class="text-xs text-slate-400">停止</span>
+                        )}
+                      </td>
+                      <td class="px-5 py-3.5 text-right font-semibold text-slate-600 tabular-nums">{m?.total_users ?? 0}</td>
+                      <td class="px-5 py-3.5 text-right">
+                        {m?.attendance_rate != null ? (
+                          <span class={`font-bold text-sm tabular-nums ${(m.attendance_rate || 0) >= 60 ? 'text-emerald-600' : (m.attendance_rate || 0) >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
+                            {m.attendance_rate}%
+                          </span>
+                        ) : <span class="text-slate-300">-</span>}
+                      </td>
+                      <td class="px-5 py-3.5 text-center">
+                        {missionCount > 0 ? (
+                          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-50 text-red-600 text-xs font-bold border border-red-100">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 pulse-dot"></span>{missionCount}
+                          </span>
+                        ) : <span class="text-xs text-slate-300">-</span>}
+                      </td>
+                      <td class="px-5 py-3.5 text-right">
+                        <div class="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition">
+                          <a href={`/admin/tenants/${t.id}/users`} class="px-2.5 py-1 rounded-lg text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition">ユーザー</a>
+                          <a href={`/admin/tenants/${t.id}/analytics`} class="px-2.5 py-1 rounded-lg text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition">分析</a>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {(!tenants || tenants.length === 0) && (
-            <div class="p-8 text-center">
-              <p class="text-slate-400 mb-3">テナントがまだありません</p>
-              <a href="/admin/tenants/new" class="text-indigo-600 hover:underline text-sm">最初のテナントを作成</a>
+            <div class="empty-state">
+              <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+              </div>
+              <p class="text-slate-500 font-medium mb-1">テナントがまだありません</p>
+              <p class="text-slate-400 text-sm mb-4">最初のテナントを作成してAIエージェントを始めましょう</p>
+              <a href="/admin/tenants/new" class="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold transition">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                テナントを作成
+              </a>
             </div>
           )}
         </div>
 
         {/* Activity Feed */}
-        <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-          <div class="px-5 py-4 border-b border-slate-100">
-            <h2 class="font-bold text-slate-700">直近のアクティビティ</h2>
+        <div class="card overflow-hidden flex flex-col">
+          <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <h2 class="font-bold text-slate-700">アクティビティ</h2>
           </div>
-          <div class="divide-y divide-slate-50 max-h-[400px] overflow-y-auto">
+          <div class="divide-y divide-slate-50 flex-1 max-h-[420px] overflow-y-auto custom-scrollbar">
             {activity.length > 0 ? activity.map((evt) => (
-              <div class="px-5 py-3 hover:bg-slate-50/50 transition">
+              <div class="px-5 py-3.5 hover:bg-slate-50/50 transition">
                 <div class="flex items-start gap-3">
-                  <span class={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${activityDotColor(evt.type)}`}></span>
-                  <div class="min-w-0">
-                    <p class="text-sm text-slate-700 truncate">
-                      <span class="font-medium">{evt.user_name || '新規ユーザー'}</span>
-                      <span class="text-slate-400 mx-1">{activityVerb(evt.type)}</span>
+                  <span class={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${activityDotColor(evt.type)}`}></span>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm text-slate-700">
+                      <span class="font-semibold">{evt.user_name || '新規ユーザー'}</span>
+                      <span class="text-slate-400 mx-1.5">{activityVerb(evt.type)}</span>
                     </p>
-                    <p class="text-xs text-slate-400 mt-0.5">{evt.tenant_name} / {timeAgo(evt.timestamp)}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">{evt.tenant_name} ・ {timeAgo(evt.timestamp)}</p>
                   </div>
                 </div>
               </div>
             )) : (
-              <p class="p-5 text-sm text-slate-400 text-center">まだアクティビティがありません</p>
+              <div class="empty-state py-12">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5" class="mb-3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <p class="text-sm text-slate-400">アクティビティがまだありません</p>
+              </div>
             )}
           </div>
         </div>
