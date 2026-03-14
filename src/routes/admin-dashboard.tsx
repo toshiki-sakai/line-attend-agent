@@ -16,6 +16,132 @@ import { pushMessage } from '../services/line';
 
 const dashboard = new Hono<{ Bindings: Env }>();
 
+// --- Design System ---
+const DESIGN_CSS = `
+  /* === Animations === */
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes score-fill { from { width: 0%; } to { width: var(--score-width); } }
+  @keyframes slide-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes slide-in-right { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes glow { 0%, 100% { box-shadow: 0 0 5px rgba(99,102,241,0.3); } 50% { box-shadow: 0 0 20px rgba(99,102,241,0.6); } }
+  @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-4px); } }
+  @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  @keyframes confetti { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-40px) rotate(360deg); opacity: 0; } }
+  @keyframes count-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes typing-dot { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+  /* === Utility Classes === */
+  .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+  .slide-in { animation: slide-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+  .slide-in-right { animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+  .fade-in { animation: fade-in 0.5s ease; }
+  .mission-glow { animation: glow 2s ease-in-out infinite; }
+  .float-gentle { animation: float 3s ease-in-out infinite; }
+  .count-up { animation: count-up 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  /* === Gradients === */
+  .gradient-hero { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%); }
+  .gradient-warm { background: linear-gradient(135deg, #f97316 0%, #f59e0b 100%); }
+  .gradient-success { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+  .gradient-card { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); }
+  .gradient-score { background: linear-gradient(90deg, var(--score-from), var(--score-to)); }
+  .gradient-glass { background: rgba(255,255,255,0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .gradient-dark { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%); }
+
+  /* === Chat Bubbles === */
+  .line-bubble-user { background: #fff; border: 1px solid #e5e7eb; border-radius: 0 18px 18px 18px; }
+  .line-bubble-bot { background: linear-gradient(135deg, #dbeafe, #e0f2fe); border-radius: 18px 0 18px 18px; }
+  .line-bubble-staff { background: linear-gradient(135deg, #fef3c7, #fde68a); border-radius: 18px 0 18px 18px; }
+
+  /* === Scrollbar === */
+  .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* === Progress & Bars === */
+  .health-bar { transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+  .score-bar { animation: score-fill 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; width: var(--score-width); }
+  .dropoff-bar { transition: width 0.6s ease; }
+  .suggestion-card { border-left: 3px solid #6366f1; }
+
+  /* === Skeleton Loading === */
+  .skeleton {
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: 8px;
+  }
+
+  /* === Cards & Surfaces === */
+  .card {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid #f1f5f9;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04); }
+  .card-interactive:hover { transform: translateY(-1px); }
+
+  /* === Typing indicator === */
+  .typing-dot { animation: typing-dot 1.4s ease-in-out infinite; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  /* === Sidebar === */
+  .sidebar-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 14px; color: #64748b;
+    transition: all 0.15s ease;
+    text-decoration: none;
+  }
+  .sidebar-link:hover { background: #f1f5f9; color: #334155; }
+  .sidebar-link.active { background: #eef2ff; color: #4f46e5; font-weight: 600; }
+
+  /* === Empty State === */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 48px 24px; text-align: center;
+  }
+
+  /* === Responsive === */
+  @media (max-width: 768px) {
+    .sidebar-desktop { display: none; }
+    .main-with-sidebar { margin-left: 0 !important; }
+  }
+  @media (min-width: 769px) {
+    .mobile-nav { display: none !important; }
+  }
+
+  /* === Badge animations === */
+  .badge-pulse {
+    position: relative;
+  }
+  .badge-pulse::after {
+    content: '';
+    position: absolute; top: -2px; right: -2px;
+    width: 8px; height: 8px;
+    background: #ef4444; border-radius: 50%;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  /* === Focus styles for accessibility === */
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* === Print === */
+  @media print {
+    nav, .sidebar-desktop, .mobile-nav { display: none !important; }
+    .main-with-sidebar { margin-left: 0 !important; }
+  }
+`;
+
 // --- Layout ---
 const Layout: FC<{ title: string; children: unknown }> = ({ title, children }) => (
   <html lang="ja">
@@ -24,43 +150,89 @@ const Layout: FC<{ title: string; children: unknown }> = ({ title, children }) =
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <title>{title} - LINE Attend Agent</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        @keyframes score-fill { from { width: 0%; } to { width: var(--score-width); } }
-        @keyframes slide-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes glow { 0%, 100% { box-shadow: 0 0 5px rgba(99,102,241,0.3); } 50% { box-shadow: 0 0 20px rgba(99,102,241,0.6); } }
-        .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
-        .gradient-hero { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%); }
-        .gradient-card { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); }
-        .gradient-score { background: linear-gradient(90deg, var(--score-from), var(--score-to)); }
-        .line-bubble-user { background: #fff; border: 1px solid #e5e7eb; border-radius: 0 18px 18px 18px; }
-        .line-bubble-bot { background: #e0f2fe; border-radius: 18px 0 18px 18px; }
-        .line-bubble-staff { background: #fef3c7; border-radius: 18px 0 18px 18px; }
-        .chat-container::-webkit-scrollbar { width: 6px; }
-        .chat-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        .health-bar { transition: width 0.5s ease; }
-        .score-bar { animation: score-fill 0.8s ease-out forwards; width: var(--score-width); }
-        .slide-in { animation: slide-in 0.3s ease-out; }
-        .mission-glow { animation: glow 2s ease-in-out infinite; }
-        .dropoff-bar { transition: width 0.6s ease; }
-        .suggestion-card { border-left: 3px solid #6366f1; }
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <script dangerouslySetInnerHTML={{__html: `
+        tailwind.config = {
+          theme: {
+            extend: {
+              fontFamily: {
+                sans: ['Inter', 'Noto Sans JP', 'system-ui', 'sans-serif'],
+              },
+            }
+          }
+        }
       `}} />
+      <style dangerouslySetInnerHTML={{__html: DESIGN_CSS}} />
     </head>
-    <body class="bg-slate-50 min-h-screen">
-      <nav class="gradient-hero text-white px-6 py-3 flex items-center justify-between shadow-lg">
-        <a href="/admin/" class="text-lg font-bold tracking-tight flex items-center gap-2">
-          <span class="bg-white/20 px-2 py-0.5 rounded text-sm">LA</span>
-          LINE Attend Agent
+    <body class="bg-slate-50 min-h-screen font-sans text-slate-700 antialiased">
+      {/* Mobile Top Nav */}
+      <nav class="mobile-nav fixed top-0 left-0 right-0 z-50 gradient-glass border-b border-slate-200/50 px-4 py-3 flex items-center justify-between">
+        <a href="/admin/" class="flex items-center gap-2">
+          <span class="w-8 h-8 gradient-hero rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm">AI</span>
+          <span class="font-bold text-slate-800 text-sm">Attend Agent</span>
         </a>
-        <div class="flex gap-5 items-center text-sm">
-          <a href="/admin/" class="hover:text-white/80 transition">ダッシュボード</a>
-          <a href="/admin/system" class="hover:text-white/80 transition">システム</a>
+        <div class="flex items-center gap-2">
+          <a href="/admin/system" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </a>
           <form method="post" action="/admin/logout" class="inline">
-            <button type="submit" class="bg-white/10 px-3 py-1 rounded hover:bg-white/20 transition">ログアウト</button>
+            <button type="submit" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
           </form>
         </div>
       </nav>
-      <main class="max-w-7xl mx-auto px-6 py-8">{children}</main>
+
+      {/* Desktop Sidebar */}
+      <aside class="sidebar-desktop fixed top-0 left-0 bottom-0 w-[220px] bg-white border-r border-slate-100 z-40 flex flex-col">
+        {/* Logo */}
+        <div class="px-5 py-5 flex items-center gap-3">
+          <span class="w-9 h-9 gradient-hero rounded-xl flex items-center justify-center text-white text-xs font-bold shadow-md float-gentle">AI</span>
+          <div>
+            <p class="font-bold text-slate-800 text-sm leading-tight">Attend Agent</p>
+            <p class="text-[10px] text-slate-400 leading-tight">AIコンシェルジュ</p>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav class="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
+          <p class="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">メイン</p>
+          <a href="/admin/" class="sidebar-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            ホーム
+          </a>
+
+          <p class="px-3 pt-5 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">管理</p>
+          <a href="/admin/system" class="sidebar-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            システム状態
+          </a>
+        </nav>
+
+        {/* Footer */}
+        <div class="p-4 border-t border-slate-100">
+          <form method="post" action="/admin/logout">
+            <button type="submit" class="sidebar-link w-full text-slate-400 hover:text-red-500 hover:bg-red-50">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              ログアウト
+            </button>
+          </form>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main class="main-with-sidebar ml-[220px] min-h-screen pt-0 md:pt-0" style="padding-top: 0">
+        <div class="max-w-6xl mx-auto px-6 py-8 md:px-8">
+          <div class="slide-in">
+            {children}
+          </div>
+        </div>
+      </main>
+
+      {/* Mobile bottom spacer */}
+      <div class="mobile-nav h-14"></div>
     </body>
   </html>
 );
