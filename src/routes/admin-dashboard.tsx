@@ -618,52 +618,106 @@ dashboard.get('/admin/tenants/new', (c) => {
   const defaults = getDefaultConfigs();
   return c.html(
     <Layout title="テナント作成">
-      <h1 class="text-2xl font-bold mb-6">新規テナント作成</h1>
-      <div class="bg-green-50 border border-green-200 rounded p-4 mb-6">
-        <p class="text-sm text-green-700">推奨設定がプリセットされています。LINE Channel情報とスクール情報を入力するだけで始められます。</p>
-      </div>
-      <form method="post" action="/admin/tenants/new" class="bg-white p-6 rounded shadow max-w-2xl space-y-4">
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">基本情報</h2>
-          <div class="space-y-3">
-            <div>
-              <label class="block text-sm font-medium mb-1">スクール名 *</label>
-              <input type="text" name="name" required class="w-full border rounded px-3 py-2" placeholder="例: ABCプログラミングスクール" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">LINE Channel ID *</label>
-              <input type="text" name="line_channel_id" required class="w-full border rounded px-3 py-2" placeholder="LINE Developers Console から取得" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">LINE Channel Secret *</label>
-              <input type="text" name="line_channel_secret" required class="w-full border rounded px-3 py-2" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium mb-1">LINE Channel Access Token *</label>
-              <textarea name="line_channel_access_token" required rows={2} class="w-full border rounded px-3 py-2"></textarea>
-            </div>
+      <div class="max-w-2xl mx-auto">
+        <div class="mb-8">
+          <a href="/admin/" class="text-sm text-slate-400 hover:text-slate-600 transition flex items-center gap-1 mb-3">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            ダッシュボード
+          </a>
+          <h1 class="text-2xl font-bold text-slate-800">新しいテナントを作成</h1>
+          <p class="text-slate-500 text-sm mt-1">スクールやビジネスの情報を入力してAIエージェントを始めましょう</p>
+        </div>
+
+        {/* Quick start tip */}
+        <div class="card p-4 mb-6 flex items-start gap-3 border-l-4 border-l-emerald-400">
+          <div class="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
-        </div>
-
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">スクール情報（重要）</h2>
-          <p class="text-xs text-gray-500 mb-2">AIがユーザーと会話する際のコンテキストになります。できるだけ詳しく記載してください。</p>
-          <textarea name="school_context" rows={5} class="w-full border rounded px-3 py-2" placeholder="例: ABCプログラミングスクールは、未経験からWebエンジニア転職を目指す方向けのオンラインスクールです。&#10;&#10;特徴:&#10;- 3ヶ月の集中カリキュラム&#10;- 現役エンジニアによる1on1メンタリング&#10;- 転職保証付き&#10;&#10;無料相談会では、受講生の転職実績やカリキュラムの詳細をご紹介します。"></textarea>
-        </div>
-
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">会話フロー設定</h2>
-          <p class="text-xs text-gray-500 mb-2">推奨設定がプリセット済み。カスタマイズも可能です。</p>
           <div>
-            <label class="block text-sm font-medium mb-1">シナリオ設定 (JSON)</label>
-            <textarea name="scenario_config" rows={8} class="w-full border rounded px-3 py-2 font-mono text-xs">{JSON.stringify(defaults.scenario_config, null, 2)}</textarea>
+            <p class="text-sm font-medium text-slate-700">推奨設定がプリセット済み</p>
+            <p class="text-xs text-slate-400 mt-0.5">スクール名とスクール情報を入力するだけですぐに始められます。細かい設定はあとから変更できます。</p>
           </div>
         </div>
 
-        {/* Hearing Config - Structured Form */}
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">ヒアリング項目</h2>
-          <p class="text-xs text-gray-500 mb-2">ユーザーに聞きたい質問を設定します。</p>
+        <form method="post" action="/admin/tenants/new" class="space-y-6">
+          {/* 基本情報 */}
+          <div class="card p-6">
+            <div class="flex items-center gap-2 mb-5">
+              <div class="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+              </div>
+              <h2 class="font-bold text-slate-800">基本情報</h2>
+            </div>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">スクール名 <span class="text-red-400">*</span></label>
+                <input type="text" name="name" required class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="例: ABCプログラミングスクール" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                  スクール情報 <span class="text-red-400">*</span>
+                  <span class="text-slate-400 font-normal ml-1">(AIの会話の土台になります)</span>
+                </label>
+                <textarea name="school_context" rows={5} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder={"例: ABCプログラミングスクールは、未経験からWebエンジニア転職を目指す方向けのオンラインスクールです。\n\n特徴:\n- 3ヶ月の集中カリキュラム\n- 現役エンジニアによる1on1メンタリング\n- 転職保証付き\n\n無料相談会では、受講生の転職実績やカリキュラムの詳細をご紹介します。"}></textarea>
+                <p class="text-xs text-slate-400 mt-1.5">詳しく書くほどAIが的確な会話をします</p>
+              </div>
+            </div>
+          </div>
+
+          {/* LINE接続（オプショナル） */}
+          <details class="card overflow-hidden group">
+            <summary class="p-6 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
+                </div>
+                <div>
+                  <h2 class="font-bold text-slate-800 text-sm">LINE直接接続</h2>
+                  <p class="text-xs text-slate-400">Lステップを使わない場合のみ必要</p>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+            </summary>
+            <div class="px-6 pb-6 space-y-3 border-t border-slate-100 pt-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel ID</label>
+                <input type="text" name="line_channel_id" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="LINE Developers Consoleから取得" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Secret</label>
+                <input type="text" name="line_channel_secret" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
+                <textarea name="line_channel_access_token" rows={2} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition"></textarea>
+              </div>
+            </div>
+          </details>
+
+          {/* 会話フロー設定（折りたたみ） */}
+          <details class="card overflow-hidden group">
+            <summary class="p-6 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                </div>
+                <div>
+                  <h2 class="font-bold text-slate-800 text-sm">詳細設定</h2>
+                  <p class="text-xs text-slate-400">推奨設定がプリセット済み・あとから変更可</p>
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
+            </summary>
+            <div class="px-6 pb-6 space-y-4 border-t border-slate-100 pt-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">シナリオ設定 (JSON)</label>
+                <textarea name="scenario_config" rows={6} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{JSON.stringify(defaults.scenario_config, null, 2)}</textarea>
+              </div>
+
+        {/* Hearing Config */}
+        <div class="pb-4">
+          <h3 class="text-sm font-bold text-slate-700 mb-2">ヒアリング項目</h3>
+          <p class="text-xs text-slate-400 mb-2">ユーザーに聞きたい質問を設定します。</p>
           <div id="hearing-items">
             {(defaults.hearing_config as { items: Array<{ id: string; question_hint: string; required: boolean; priority: number }> }).items.map((item, i) => (
               <HearingItemRow item={item} index={i} />
@@ -686,9 +740,9 @@ dashboard.get('/admin/tenants/new', (c) => {
           <button type="button" id="add-hearing-btn" class="mt-2 text-sm text-indigo-600 hover:underline">+ 項目を追加</button>
         </div>
 
-        {/* Reminder Config - Structured Form */}
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">リマインド設定</h2>
+        {/* Reminder Config */}
+        <div class="pb-4">
+          <h3 class="text-sm font-bold text-slate-700 mb-2">リマインド設定</h3>
           <div id="reminder-items">
             {(defaults.reminder_config as { pre_consultation: Array<{ timing: string; type: string; content?: string; purpose?: string }> }).pre_consultation.map((r, i) => (
               <ReminderItemRow reminder={r} index={i} />
@@ -746,9 +800,9 @@ dashboard.get('/admin/tenants/new', (c) => {
           </div>
         </div>
 
-        {/* Tone Config - Structured Form */}
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">トーン設定</h2>
+        {/* Tone Config */}
+        <div class="pb-4">
+          <h3 class="text-sm font-bold text-slate-700 mb-2">トーン設定</h3>
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium mb-1">パーソナリティ</label>
@@ -781,9 +835,9 @@ dashboard.get('/admin/tenants/new', (c) => {
           </div>
         </div>
 
-        {/* Guardrail Config - Structured Form */}
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">ガードレール設定</h2>
+        {/* Guardrail Config */}
+        <div class="pb-4">
+          <h3 class="text-sm font-bold text-slate-700 mb-2">ガードレール設定</h3>
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium mb-1">禁止トピック</label>
@@ -806,9 +860,9 @@ dashboard.get('/admin/tenants/new', (c) => {
           </div>
         </div>
 
-        {/* Notification Config - Structured Form */}
-        <div class="border-b pb-4">
-          <h2 class="text-lg font-bold mb-3">スタッフ通知設定</h2>
+        {/* Notification Config */}
+        <div class="pb-4">
+          <h3 class="text-sm font-bold text-slate-700 mb-2">スタッフ通知設定</h3>
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium mb-1">通知方法</label>
@@ -840,8 +894,15 @@ dashboard.get('/admin/tenants/new', (c) => {
           </div>
         </div>
 
-        <button type="submit" class="w-full bg-indigo-600 text-white px-6 py-3 rounded hover:bg-indigo-700 text-lg font-bold">テナントを作成</button>
-      </form>
+            </div>
+          </details>
+
+          {/* Submit */}
+          <button type="submit" class="w-full gradient-hero text-white px-6 py-3.5 rounded-xl hover:opacity-90 transition text-base font-bold shadow-lg shadow-indigo-500/20 active:scale-[0.98]">
+            テナントを作成
+          </button>
+        </form>
+      </div>
     </Layout>
   );
 });
