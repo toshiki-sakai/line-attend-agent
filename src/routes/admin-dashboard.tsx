@@ -752,7 +752,7 @@ dashboard.get('/admin/tenants/new', (c) => {
             document.getElementById('add-reminder-btn')?.addEventListener('click', function() {
               var container = document.getElementById('reminder-items');
               var row = document.createElement('div');
-              row.className = 'reminder-row border rounded p-3 mb-2 bg-gray-50';
+              row.className = 'reminder-row border rounded p-3 mb-2 bg-slate-50';
               row.innerHTML = '<div class="flex gap-2 mb-1">'
                 + '<input type="text" name="reminder_timing" placeholder="例: 1_day_before" class="flex-1 border rounded px-2 py-1 text-sm">'
                 + '<select name="reminder_type" class="border rounded px-2 py-1 text-sm"><option value="template">テンプレート</option><option value="ai">AI生成</option></select>'
@@ -781,20 +781,20 @@ dashboard.get('/admin/tenants/new', (c) => {
             </div>
             <div class="flex gap-4">
               <div>
-                <label class="block text-xs text-gray-500">最大回数</label>
+                <label class="block text-xs text-slate-500">最大回数</label>
                 <input type="number" name="followup_max_attempts" value="4" min="1" max="10" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
               <div>
-                <label class="block text-xs text-gray-500">最小間隔(時間)</label>
+                <label class="block text-xs text-slate-500">最小間隔(時間)</label>
                 <input type="number" name="followup_min_interval" value="24" min="1" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
               <div>
-                <label class="block text-xs text-gray-500">最大間隔(時間)</label>
+                <label class="block text-xs text-slate-500">最大間隔(時間)</label>
                 <input type="number" name="followup_max_interval" value="72" min="1" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
             </div>
             <div>
-              <label class="block text-xs text-gray-500">エスカレーションメッセージ</label>
+              <label class="block text-xs text-slate-500">エスカレーションメッセージ</label>
               <input type="text" name="followup_escalation_message" value={(defaults.reminder_config as { no_response_follow_up: { escalation_message: string } }).no_response_follow_up.escalation_message} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
           </div>
@@ -841,12 +841,12 @@ dashboard.get('/admin/tenants/new', (c) => {
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium mb-1">禁止トピック</label>
-              <p class="text-xs text-gray-500 mb-1">カンマ区切りで入力</p>
+              <p class="text-xs text-slate-500 mb-1">カンマ区切りで入力</p>
               <input type="text" name="guardrail_topics" value={(defaults.guardrail_config as { forbidden_topics: string[] }).forbidden_topics.join(', ')} class="w-full border rounded px-3 py-2 text-sm" placeholder="例: 他社批判, 政治, 宗教" />
             </div>
             <div>
               <label class="block text-sm font-medium mb-1">禁止表現</label>
-              <p class="text-xs text-gray-500 mb-1">カンマ区切りで入力</p>
+              <p class="text-xs text-slate-500 mb-1">カンマ区切りで入力</p>
               <input type="text" name="guardrail_expressions" value={(defaults.guardrail_config as { forbidden_expressions: string[] }).forbidden_expressions.join(', ')} class="w-full border rounded px-3 py-2 text-sm" placeholder="例: 絶対, 確実, 保証" />
             </div>
             <div>
@@ -877,7 +877,7 @@ dashboard.get('/admin/tenants/new', (c) => {
             </div>
             <div>
               <label class="block text-sm font-medium mb-1">通知先スタッフ LINE User ID</label>
-              <p class="text-xs text-gray-500 mb-1">カンマ区切りで入力</p>
+              <p class="text-xs text-slate-500 mb-1">カンマ区切りで入力</p>
               <input type="text" name="notification_staff_ids" class="w-full border rounded px-3 py-2 text-sm" placeholder="Uxxxxxx, Uyyyyyy" />
             </div>
             <div>
@@ -1082,26 +1082,26 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               <div class="flex flex-col items-center">
                 <div class={`w-80 border-2 rounded-lg p-3 text-sm ${step.type === 'template' ? 'border-blue-300 bg-blue-50' : 'border-purple-300 bg-purple-50'}`}>
                   <div class="flex justify-between items-center mb-1">
-                    <span class="font-mono text-xs text-gray-500">{step.id}</span>
+                    <span class="font-mono text-xs text-slate-500">{step.id}</span>
                     <span class={`px-2 py-0.5 rounded text-xs ${step.type === 'template' ? 'bg-blue-200 text-blue-700' : 'bg-purple-200 text-purple-700'}`}>
                       {step.type === 'template' ? 'テンプレート' : 'AI'}
                     </span>
                   </div>
-                  <div class="text-xs text-gray-500 mb-1">
+                  <div class="text-xs text-slate-500 mb-1">
                     トリガー: {step.trigger} {step.delay_minutes > 0 ? `/ ${step.delay_minutes}分後` : ''}
                   </div>
                   {step.message && (
-                    <p class="text-xs truncate text-gray-700">{step.message.content.slice(0, 60)}...</p>
+                    <p class="text-xs truncate text-slate-700">{step.message.content.slice(0, 60)}...</p>
                   )}
                   {step.ai_config && (
-                    <p class="text-xs text-gray-700">目的: {step.ai_config.purpose} / 最大{step.ai_config.max_turns}ターン</p>
+                    <p class="text-xs text-slate-700">目的: {step.ai_config.purpose} / 最大{step.ai_config.max_turns}ターン</p>
                   )}
                 </div>
                 {i < scenarioSteps.length - 1 && (
                   <div class="flex flex-col items-center my-1">
-                    <div class="w-0.5 h-4 bg-gray-300"></div>
-                    <div class="text-gray-400 text-xs">↓</div>
-                    <div class="w-0.5 h-4 bg-gray-300"></div>
+                    <div class="w-0.5 h-4 bg-slate-300"></div>
+                    <div class="text-slate-400 text-xs">↓</div>
+                    <div class="w-0.5 h-4 bg-slate-300"></div>
                   </div>
                 )}
               </div>
@@ -1217,7 +1217,7 @@ dashboard.get('/admin/tenants/:id', async (c) => {
             document.getElementById('add-reminder-btn')?.addEventListener('click', function() {
               var container = document.getElementById('reminder-items');
               var row = document.createElement('div');
-              row.className = 'reminder-row border rounded p-3 mb-2 bg-gray-50';
+              row.className = 'reminder-row border rounded p-3 mb-2 bg-slate-50';
               row.innerHTML = '<div class="flex gap-2 mb-1">'
                 + '<input type="text" name="reminder_timing" placeholder="例: 1_day_before" class="flex-1 border rounded px-2 py-1 text-sm">'
                 + '<select name="reminder_type" class="border rounded px-2 py-1 text-sm"><option value="template">テンプレート</option><option value="ai">AI生成</option></select>'
@@ -1246,20 +1246,20 @@ dashboard.get('/admin/tenants/:id', async (c) => {
             </div>
             <div class="flex gap-4">
               <div>
-                <label class="block text-xs text-gray-500">最大回数</label>
+                <label class="block text-xs text-slate-500">最大回数</label>
                 <input type="number" name="followup_max_attempts" value={String(reminderConfig.no_response_follow_up?.max_attempts || 4)} min="1" max="10" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
               <div>
-                <label class="block text-xs text-gray-500">最小間隔(時間)</label>
+                <label class="block text-xs text-slate-500">最小間隔(時間)</label>
                 <input type="number" name="followup_min_interval" value={String(reminderConfig.no_response_follow_up?.min_interval_hours || 24)} min="1" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
               <div>
-                <label class="block text-xs text-gray-500">最大間隔(時間)</label>
+                <label class="block text-xs text-slate-500">最大間隔(時間)</label>
                 <input type="number" name="followup_max_interval" value={String(reminderConfig.no_response_follow_up?.max_interval_hours || 72)} min="1" class="w-20 border rounded px-2 py-1 text-sm" />
               </div>
             </div>
             <div>
-              <label class="block text-xs text-gray-500">エスカレーションメッセージ</label>
+              <label class="block text-xs text-slate-500">エスカレーションメッセージ</label>
               <input type="text" name="followup_escalation_message" value={reminderConfig.no_response_follow_up?.escalation_message || ''} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
           </div>
@@ -1274,7 +1274,7 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           </h2>
           <div class="grid grid-cols-3 gap-3">
             <div>
-              <label class="block text-xs text-gray-500 mb-1">パーソナリティ</label>
+              <label class="block text-xs text-slate-500 mb-1">パーソナリティ</label>
               <select name="tone_personality" class="w-full border rounded px-2 py-1 text-sm">
                 {['friendly', 'professional', 'casual', 'warm', 'energetic'].map((p) => (
                   <option value={p} selected={p === toneConfig.personality}>{toneLabel('personality', p)}</option>
@@ -1282,7 +1282,7 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               </select>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">絵文字</label>
+              <label class="block text-xs text-slate-500 mb-1">絵文字</label>
               <select name="tone_emoji" class="w-full border rounded px-2 py-1 text-sm">
                 {['none', 'minimal', 'moderate', 'frequent'].map((e) => (
                   <option value={e} selected={e === toneConfig.emoji_usage}>{toneLabel('emoji', e)}</option>
@@ -1290,7 +1290,7 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               </select>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">文体</label>
+              <label class="block text-xs text-slate-500 mb-1">文体</label>
               <select name="tone_style" class="w-full border rounded px-2 py-1 text-sm">
                 {['polite', 'casual', 'formal', 'friendly-polite'].map((s) => (
                   <option value={s} selected={s === toneConfig.language_style}>{toneLabel('style', s)}</option>
@@ -1299,7 +1299,7 @@ dashboard.get('/admin/tenants/:id', async (c) => {
             </div>
           </div>
           <div class="mt-2">
-            <label class="block text-xs text-gray-500 mb-1">カスタム指示</label>
+            <label class="block text-xs text-slate-500 mb-1">カスタム指示</label>
             <textarea name="tone_custom" rows={2} class="w-full border rounded px-2 py-1 text-sm">{toneConfig.custom_instructions}</textarea>
           </div>
         </div>
@@ -1312,19 +1312,19 @@ dashboard.get('/admin/tenants/:id', async (c) => {
           </h2>
           <div class="space-y-2">
             <div>
-              <label class="block text-xs text-gray-500 mb-1">禁止トピック（カンマ区切り）</label>
+              <label class="block text-xs text-slate-500 mb-1">禁止トピック（カンマ区切り）</label>
               <input type="text" name="guardrail_topics" value={guardrailConfig.forbidden_topics.join(', ')} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">禁止表現（カンマ区切り）</label>
+              <label class="block text-xs text-slate-500 mb-1">禁止表現（カンマ区切り）</label>
               <input type="text" name="guardrail_expressions" value={guardrailConfig.forbidden_expressions.join(', ')} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">回答範囲</label>
+              <label class="block text-xs text-slate-500 mb-1">回答範囲</label>
               <textarea name="guardrail_scope" rows={2} class="w-full border rounded px-2 py-1 text-sm">{guardrailConfig.answer_scope}</textarea>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">人間エスカレーション条件</label>
+              <label class="block text-xs text-slate-500 mb-1">人間エスカレーション条件</label>
               <input type="text" name="guardrail_handoff" value={guardrailConfig.human_handoff_trigger} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
           </div>
@@ -1350,11 +1350,11 @@ dashboard.get('/admin/tenants/:id', async (c) => {
               </label>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">通知先 LINE User ID（カンマ区切り）</label>
+              <label class="block text-xs text-slate-500 mb-1">通知先 LINE User ID（カンマ区切り）</label>
               <input type="text" name="notification_staff_ids" value={notifConfig.staff_line_user_ids.join(', ')} class="w-full border rounded px-2 py-1 text-sm" />
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">通知タイミング</label>
+              <label class="block text-xs text-slate-500 mb-1">通知タイミング</label>
               <div class="flex flex-wrap gap-3">
                 {['human_handoff', 'no_show', 'stalled', 'error'].map((evt) => (
                   <label class="flex items-center gap-1 text-sm">
@@ -1950,7 +1950,7 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
               <ConversionCard label="予約→着座" value={analytics.conversion_rates.booking_to_attendance} benchmark={BENCHMARKS.booking_to_attendance} color="yellow" />
               <ConversionCard label="着座→入会" value={analytics.conversion_rates.attendance_to_enrollment} benchmark={BENCHMARKS.attendance_to_enrollment} color="green" />
               <div class="text-center p-3 bg-indigo-50 rounded-lg">
-                <p class="text-sm text-gray-600">全体CVR</p>
+                <p class="text-sm text-slate-500">全体CVR</p>
                 <p class="text-2xl font-bold text-indigo-600">{analytics.conversion_rates.overall ?? '-'}%</p>
               </div>
             </div>
@@ -2008,22 +2008,22 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
             <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
               <h2 class="text-lg font-bold mb-4">エンゲージメント</h2>
               <div class="space-y-3">
-                <div class="flex justify-between"><span class="text-gray-600">平均メッセージ数/ユーザー</span><span class="font-bold">{analytics.engagement.avg_messages_per_user}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">平均メッセージ数/ユーザー</span><span class="font-bold text-slate-700">{analytics.engagement.avg_messages_per_user}</span></div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">ヒアリング回答率</span>
-                  <span class="font-bold">{analytics.engagement.avg_hearing_completion_rate}%
-                    <span class="text-xs text-gray-400 ml-1">(業界平均: {BENCHMARKS.hearing_completion.min}-{BENCHMARKS.hearing_completion.max}%)</span>
+                  <span class="text-slate-500">ヒアリング回答率</span>
+                  <span class="font-bold text-slate-700">{analytics.engagement.avg_hearing_completion_rate}%
+                    <span class="text-xs text-slate-400 ml-1">(業界平均: {BENCHMARKS.hearing_completion.min}-{BENCHMARKS.hearing_completion.max}%)</span>
                   </span>
                 </div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">停滞ユーザー</span>
+                  <span class="text-slate-500">停滞ユーザー</span>
                   <a href={`/admin/tenants/${id}/users?status=stalled`} class="font-bold text-red-600 hover:underline">{analytics.engagement.stalled_users}</a>
                 </div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">離脱ユーザー</span>
+                  <span class="text-slate-500">離脱ユーザー</span>
                   <a href={`/admin/tenants/${id}/users?status=dropped`} class="font-bold hover:underline">{analytics.engagement.dropped_users}</a>
                 </div>
-                <div class="flex justify-between"><span class="text-gray-600">ブロック</span><span class="font-bold">{analytics.engagement.blocked_users}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">ブロック</span><span class="font-bold text-slate-700">{analytics.engagement.blocked_users}</span></div>
               </div>
             </div>
 
@@ -2031,20 +2031,20 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
             <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
               <h2 class="text-lg font-bold mb-4">予約状況</h2>
               <div class="space-y-3">
-                <div class="flex justify-between"><span class="text-gray-600">総予約数</span><span class="font-bold">{analytics.bookings.total}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">総予約数</span><span class="font-bold text-slate-700">{analytics.bookings.total}</span></div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">確定中</span>
+                  <span class="text-slate-500">確定中</span>
                   <a href={`/admin/tenants/${id}/bookings?status=confirmed`} class="font-bold text-blue-600 hover:underline">{analytics.bookings.confirmed}</a>
                 </div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">ノーショー</span>
+                  <span class="text-slate-500">ノーショー</span>
                   <a href={`/admin/tenants/${id}/bookings?status=no_show`} class="font-bold text-red-600 hover:underline">{analytics.bookings.no_show}</a>
                 </div>
                 <div class="flex justify-between">
-                  <span class="text-gray-600">ノーショー率</span>
-                  <span class={`font-bold ${(analytics.bookings.no_show_rate || 0) > 20 ? 'text-red-600' : 'text-green-600'}`}>
+                  <span class="text-slate-500">ノーショー率</span>
+                  <span class={`font-bold ${(analytics.bookings.no_show_rate || 0) > 20 ? 'text-red-600' : 'text-emerald-600'}`}>
                     {analytics.bookings.no_show_rate ?? '-'}%
-                    <span class="text-xs text-gray-400 ml-1">(業界平均: {BENCHMARKS.no_show_rate.min}-{BENCHMARKS.no_show_rate.max}%)</span>
+                    <span class="text-xs text-slate-400 ml-1">(業界平均: {BENCHMARKS.no_show_rate.min}-{BENCHMARKS.no_show_rate.max}%)</span>
                   </span>
                 </div>
               </div>
@@ -2064,7 +2064,7 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
                 const pctChange = item.prev > 0 ? Math.round((diff / item.prev) * 100) : (item.current > 0 ? 100 : 0);
                 return (
                   <div class="text-center p-4 bg-slate-50 rounded-lg">
-                    <p class="text-sm text-gray-600">{item.label}</p>
+                    <p class="text-sm text-slate-500">{item.label}</p>
                     <p class="text-2xl font-bold text-slate-800">{item.current}</p>
                     <p class={`text-sm font-medium mt-1 ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-red-600' : 'text-slate-400'}`}>
                       {diff > 0 ? '+' : ''}{diff} ({pctChange > 0 ? '+' : ''}{pctChange}%)
@@ -2104,7 +2104,11 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
           )}
         </div>
       ) : (
-        <p class="text-gray-500">データがまだありません</p>
+        <div class="py-16 text-center">
+          <svg class="w-14 h-14 text-slate-200 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+          <p class="text-slate-400 text-sm">データがまだありません</p>
+          <p class="text-slate-300 text-xs mt-1">ユーザーが増えると、分析データが表示されます</p>
+        </div>
       )}
     </Layout>
   );
@@ -2139,44 +2143,44 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
 
       {/* Status filter */}
       <div class="mb-4 flex gap-2">
-        <a href={`/admin/tenants/${id}/bookings`} class={`px-3 py-1 rounded text-sm ${!statusFilter ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>全て</a>
-        <a href={`/admin/tenants/${id}/bookings?status=confirmed`} class={`px-3 py-1 rounded text-sm ${statusFilter === 'confirmed' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>確定</a>
-        <a href={`/admin/tenants/${id}/bookings?status=no_show`} class={`px-3 py-1 rounded text-sm ${statusFilter === 'no_show' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>ノーショー</a>
+        <a href={`/admin/tenants/${id}/bookings`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!statusFilter ? 'bg-indigo-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
+        <a href={`/admin/tenants/${id}/bookings?status=confirmed`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'confirmed' ? 'bg-blue-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>確定</a>
+        <a href={`/admin/tenants/${id}/bookings?status=no_show`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'no_show' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>ノーショー</a>
       </div>
 
-      <div class="bg-white rounded shadow overflow-hidden">
-        <table class="w-full">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">ユーザー</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">予約日時</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">ステータス</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">リマインド回数</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">操作</th>
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+              <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
+              <th class="text-left px-5 py-2.5 font-semibold">予約日時</th>
+              <th class="text-left px-5 py-2.5 font-semibold">ステータス</th>
+              <th class="text-left px-5 py-2.5 font-semibold">リマインド</th>
+              <th class="text-left px-5 py-2.5 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody>
             {(bookings || []).map((b: Record<string, unknown>) => {
               const eu = b.end_users as Record<string, string>;
               return (
-                <tr class="border-t hover:bg-gray-50">
-                  <td class="px-4 py-3">{eu?.display_name || '(名前なし)'}</td>
-                  <td class="px-4 py-3">{formatDateTimeJST(b.scheduled_at as string)}</td>
-                  <td class="px-4 py-3">
-                    <span class={`px-2 py-1 rounded text-xs ${bookingStatusColor(b.status as string)}`}>{bookingStatusLabel(b.status as string)}</span>
+                <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
+                  <td class="px-5 py-3.5 text-slate-700 font-medium">{eu?.display_name || '(名前なし)'}</td>
+                  <td class="px-5 py-3.5 text-slate-500 text-xs">{formatDateTimeJST(b.scheduled_at as string)}</td>
+                  <td class="px-5 py-3.5">
+                    <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${bookingStatusColor(b.status as string)}`}>{bookingStatusLabel(b.status as string)}</span>
                   </td>
-                  <td class="px-4 py-3">{String(b.reminder_count)}</td>
-                  <td class="px-4 py-3 space-x-1">
+                  <td class="px-5 py-3.5 text-slate-500">{String(b.reminder_count)}</td>
+                  <td class="px-5 py-3.5 space-x-2">
                     {b.status === 'confirmed' && (
                       <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline">
                         <input type="hidden" name="status" value="consulted" />
-                        <button type="submit" class="text-green-600 hover:underline text-sm">相談済み</button>
+                        <button type="submit" class="text-emerald-600 hover:text-emerald-700 text-xs font-medium transition">相談済み</button>
                       </form>
                     )}
                     {b.status === 'confirmed' && (
                       <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline">
                         <input type="hidden" name="status" value="no_show" />
-                        <button type="submit" class="text-red-600 hover:underline text-sm">ノーショー</button>
+                        <button type="submit" class="text-red-500 hover:text-red-600 text-xs font-medium transition">ノーショー</button>
                       </form>
                     )}
                   </td>
@@ -2186,7 +2190,10 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
           </tbody>
         </table>
         {(!bookings || bookings.length === 0) && (
-          <p class="p-4 text-gray-500 text-center">予約がまだありません</p>
+          <div class="py-12 text-center">
+            <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <p class="text-slate-400 text-sm">予約がまだありません</p>
+          </div>
         )}
       </div>
     </Layout>
@@ -2311,46 +2318,46 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
       </div>
 
       <div class="mb-4 flex gap-2">
-        <a href={`/admin/tenants/${id}/actions`} class={`px-3 py-1 rounded text-sm ${!statusFilter ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>全て</a>
-        <a href={`/admin/tenants/${id}/actions?status=pending`} class={`px-3 py-1 rounded text-sm ${statusFilter === 'pending' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>待機中</a>
-        <a href={`/admin/tenants/${id}/actions?status=failed`} class={`px-3 py-1 rounded text-sm ${statusFilter === 'failed' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>失敗</a>
-        <a href={`/admin/tenants/${id}/actions?status=completed`} class={`px-3 py-1 rounded text-sm ${statusFilter === 'completed' ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>完了</a>
+        <a href={`/admin/tenants/${id}/actions`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!statusFilter ? 'bg-indigo-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
+        <a href={`/admin/tenants/${id}/actions?status=pending`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>待機中</a>
+        <a href={`/admin/tenants/${id}/actions?status=failed`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'failed' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>失敗</a>
+        <a href={`/admin/tenants/${id}/actions?status=completed`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'completed' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>完了</a>
       </div>
 
-      <div class="bg-white rounded shadow overflow-hidden">
-        <table class="w-full">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">ユーザー</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">種別</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">実行予定</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">ステータス</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">試行回数</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">操作</th>
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+              <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
+              <th class="text-left px-5 py-2.5 font-semibold">種別</th>
+              <th class="text-left px-5 py-2.5 font-semibold">実行予定</th>
+              <th class="text-left px-5 py-2.5 font-semibold">ステータス</th>
+              <th class="text-left px-5 py-2.5 font-semibold">試行</th>
+              <th class="text-left px-5 py-2.5 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody>
             {(actions || []).map((a: Record<string, unknown>) => {
               const eu = a.end_users as Record<string, string>;
               return (
-                <tr class="border-t hover:bg-gray-50">
-                  <td class="px-4 py-3 text-sm">{eu?.display_name || '(名前なし)'}</td>
-                  <td class="px-4 py-3">
-                    <span class="px-2 py-1 rounded text-xs bg-gray-100">{actionTypeLabel(a.action_type as string)}</span>
+                <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
+                  <td class="px-5 py-3.5 text-slate-700 font-medium text-sm">{eu?.display_name || '(名前なし)'}</td>
+                  <td class="px-5 py-3.5">
+                    <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">{actionTypeLabel(a.action_type as string)}</span>
                   </td>
-                  <td class="px-4 py-3 text-sm">{formatDateTimeJST(a.execute_at as string)}</td>
-                  <td class="px-4 py-3">
-                    <span class={`px-2 py-1 rounded text-xs ${actionStatusColor(a.status as string)}`}>{a.status as string}</span>
+                  <td class="px-5 py-3.5 text-slate-500 text-xs">{formatDateTimeJST(a.execute_at as string)}</td>
+                  <td class="px-5 py-3.5">
+                    <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${actionStatusColor(a.status as string)}`}>{a.status as string}</span>
                   </td>
-                  <td class="px-4 py-3 text-sm">{String(a.attempts)} / {String(a.max_attempts)}</td>
-                  <td class="px-4 py-3">
+                  <td class="px-5 py-3.5 text-slate-500 text-sm">{String(a.attempts)} / {String(a.max_attempts)}</td>
+                  <td class="px-5 py-3.5">
                     {(a.status === 'pending' || a.status === 'processing') && (
                       <form method="post" action={`/admin/tenants/${id}/actions/${a.id}/cancel`} class="inline">
-                        <button type="submit" class="text-red-600 hover:underline text-sm">キャンセル</button>
+                        <button type="submit" class="text-red-500 hover:text-red-600 text-xs font-medium transition">キャンセル</button>
                       </form>
                     )}
                     {a.last_error && (
-                      <span class="text-red-500 text-xs ml-2" title={a.last_error as string}>エラーあり</span>
+                      <span class="text-red-400 text-xs ml-2" title={a.last_error as string}>エラーあり</span>
                     )}
                   </td>
                 </tr>
@@ -2359,7 +2366,10 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
           </tbody>
         </table>
         {(!actions || actions.length === 0) && (
-          <p class="p-4 text-gray-500 text-center">アクションがありません</p>
+          <div class="py-12 text-center">
+            <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <p class="text-slate-400 text-sm">アクションがありません</p>
+          </div>
         )}
       </div>
     </Layout>
@@ -2583,41 +2593,41 @@ dashboard.get('/admin/system', async (c) => {
       </div>
 
       <div class="grid grid-cols-3 gap-4 mb-6">
-        <div class={`p-4 rounded shadow ${(overdueCount || 0) > 0 ? 'bg-yellow-50' : 'bg-white'}`}>
-          <p class="text-sm text-gray-500">期限超過</p>
-          <p class="text-2xl font-bold">{overdueCount || 0}</p>
+        <div class={`card p-4 ${(overdueCount || 0) > 0 ? 'ring-1 ring-amber-200 bg-amber-50/50' : ''}`}>
+          <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">期限超過</p>
+          <p class="text-2xl font-bold text-slate-800 mt-1">{overdueCount || 0}</p>
         </div>
-        <div class={`p-4 rounded shadow ${(processingCount || 0) > 5 ? 'bg-yellow-50' : 'bg-white'}`}>
-          <p class="text-sm text-gray-500">処理中</p>
-          <p class="text-2xl font-bold">{processingCount || 0}</p>
+        <div class={`card p-4 ${(processingCount || 0) > 5 ? 'ring-1 ring-amber-200 bg-amber-50/50' : ''}`}>
+          <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">処理中</p>
+          <p class="text-2xl font-bold text-slate-800 mt-1">{processingCount || 0}</p>
         </div>
-        <div class={`p-4 rounded shadow ${(failedCount || 0) > 0 ? 'bg-red-50' : 'bg-white'}`}>
-          <p class="text-sm text-gray-500">24h失敗</p>
-          <p class="text-2xl font-bold text-red-600">{failedCount || 0}</p>
+        <div class={`card p-4 ${(failedCount || 0) > 0 ? 'ring-1 ring-red-200 bg-red-50/50' : ''}`}>
+          <p class="text-xs text-slate-400 uppercase tracking-wider font-medium">24h失敗</p>
+          <p class="text-2xl font-bold text-red-600 mt-1">{failedCount || 0}</p>
         </div>
       </div>
 
       {recentFailures && recentFailures.length > 0 && (
-        <div class="bg-white rounded shadow overflow-hidden">
-          <h2 class="text-lg font-bold p-4 border-b">最近の失敗アクション</h2>
-          <table class="w-full">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">ユーザー</th>
-                <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">種別</th>
-                <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">エラー</th>
-                <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">日時</th>
+        <div class="card overflow-x-auto">
+          <h2 class="text-sm font-bold text-slate-700 px-5 py-3 border-b border-slate-100">最近の失敗アクション</h2>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+                <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
+                <th class="text-left px-5 py-2.5 font-semibold">種別</th>
+                <th class="text-left px-5 py-2.5 font-semibold">エラー</th>
+                <th class="text-left px-5 py-2.5 font-semibold">日時</th>
               </tr>
             </thead>
             <tbody>
               {recentFailures.map((f: Record<string, unknown>) => {
                 const eu = f.end_users as Record<string, string>;
                 return (
-                  <tr class="border-t">
-                    <td class="px-4 py-2 text-sm">{eu?.display_name || '-'}</td>
-                    <td class="px-4 py-2 text-sm">{actionTypeLabel(f.action_type as string)}</td>
-                    <td class="px-4 py-2 text-sm text-red-600 truncate max-w-xs">{(f.last_error as string)?.slice(0, 80)}</td>
-                    <td class="px-4 py-2 text-sm">{formatDateTimeJST(f.created_at as string)}</td>
+                  <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
+                    <td class="px-5 py-3 text-slate-700 font-medium">{eu?.display_name || '-'}</td>
+                    <td class="px-5 py-3"><span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">{actionTypeLabel(f.action_type as string)}</span></td>
+                    <td class="px-5 py-3 text-red-500 truncate max-w-xs text-xs">{(f.last_error as string)?.slice(0, 80)}</td>
+                    <td class="px-5 py-3 text-slate-400 text-xs">{formatDateTimeJST(f.created_at as string)}</td>
                   </tr>
                 );
               })}
@@ -2663,49 +2673,49 @@ dashboard.get('/admin/tenants/:id/slots', async (c) => {
       </div>
 
       {/* Add slot form */}
-      <form method="post" action={`/admin/tenants/${id}/slots/add`} class="bg-white p-4 rounded shadow mb-6 flex gap-4 items-end">
+      <form method="post" action={`/admin/tenants/${id}/slots/add`} class="card p-5 mb-6 flex gap-4 items-end flex-wrap">
         <div>
-          <label class="block text-sm font-medium mb-1">開始日時</label>
-          <input type="datetime-local" name="start_at" required class="border rounded px-3 py-2" />
+          <label class="block text-xs text-slate-500 font-medium mb-1.5">開始日時</label>
+          <input type="datetime-local" name="start_at" required class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">終了日時</label>
-          <input type="datetime-local" name="end_at" required class="border rounded px-3 py-2" />
+          <label class="block text-xs text-slate-500 font-medium mb-1.5">終了日時</label>
+          <input type="datetime-local" name="end_at" required class="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">定員</label>
-          <input type="number" name="max_bookings" value="3" min="1" class="border rounded px-3 py-2 w-20" />
+          <label class="block text-xs text-slate-500 font-medium mb-1.5">定員</label>
+          <input type="number" name="max_bookings" value="3" min="1" class="border border-slate-200 rounded-lg px-3 py-2 text-sm w-20 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition" />
         </div>
-        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">追加</button>
+        <button type="submit" class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition">追加</button>
       </form>
 
       {/* Slots table */}
-      <div class="bg-white rounded shadow overflow-hidden">
-        <table class="w-full">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">日時</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">予約状況</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">ステータス</th>
-              <th class="text-left px-4 py-3 text-sm font-medium text-gray-500">操作</th>
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
+              <th class="text-left px-5 py-2.5 font-semibold">日時</th>
+              <th class="text-left px-5 py-2.5 font-semibold">予約状況</th>
+              <th class="text-left px-5 py-2.5 font-semibold">ステータス</th>
+              <th class="text-left px-5 py-2.5 font-semibold">操作</th>
             </tr>
           </thead>
           <tbody>
             {(slots || []).map((slot) => (
-              <tr class="border-t hover:bg-gray-50">
-                <td class="px-4 py-3">
+              <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
+                <td class="px-5 py-3.5 text-slate-700 font-medium">
                   {formatDateTimeJST(slot.start_at)} 〜 {formatDateTimeJST(slot.end_at).split(' ')[1]}
                 </td>
-                <td class="px-4 py-3">{slot.current_bookings} / {slot.max_bookings}</td>
-                <td class="px-4 py-3">
-                  <span class={`px-2 py-1 rounded text-xs ${slot.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                <td class="px-5 py-3.5 text-slate-600">{slot.current_bookings} / {slot.max_bookings}</td>
+                <td class="px-5 py-3.5">
+                  <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${slot.is_active ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200' : 'bg-slate-50 text-slate-400 ring-1 ring-slate-200'}`}>
                     {slot.is_active ? '有効' : '無効'}
                   </span>
                 </td>
-                <td class="px-4 py-3">
+                <td class="px-5 py-3.5">
                   {slot.is_active && (
                     <form method="post" action={`/admin/tenants/${id}/slots/${slot.id}/delete`} class="inline">
-                      <button type="submit" class="text-red-600 hover:underline text-sm">無効化</button>
+                      <button type="submit" class="text-red-500 hover:text-red-600 text-xs font-medium transition">無効化</button>
                     </form>
                   )}
                 </td>
@@ -2714,7 +2724,10 @@ dashboard.get('/admin/tenants/:id/slots', async (c) => {
           </tbody>
         </table>
         {(!slots || slots.length === 0) && (
-          <p class="p-4 text-gray-500 text-center">予約枠がまだありません</p>
+          <div class="py-12 text-center">
+            <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <p class="text-slate-400 text-sm">予約枠がまだありません</p>
+          </div>
         )}
       </div>
     </Layout>
@@ -2758,8 +2771,8 @@ const FunnelBar: FC<{ label: string; value: number; max: number; color: string }
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div class="flex items-center gap-3">
-      <span class="w-24 text-sm text-gray-600">{label}</span>
-      <div class="flex-1 bg-gray-200 rounded-full h-6 relative">
+      <span class="w-24 text-sm text-slate-600">{label}</span>
+      <div class="flex-1 bg-slate-200 rounded-full h-6 relative">
         <div class={`${color} h-6 rounded-full`} style={`width: ${pct}%`}></div>
       </div>
       <span class="w-16 text-sm text-right">{value} ({pct}%)</span>
@@ -2781,7 +2794,7 @@ const HearingItemRow: FC<{ item: { id: string; question_hint: string; required: 
 );
 
 const ReminderItemRow: FC<{ reminder: { timing: string; type: string; content?: string; purpose?: string }; index: number }> = ({ reminder }) => (
-  <div class="reminder-row border rounded p-3 mb-2 bg-gray-50">
+  <div class="reminder-row border rounded p-3 mb-2 bg-slate-50">
     <div class="flex gap-2 mb-1">
       <input type="text" name="reminder_timing" value={reminder.timing} placeholder="例: 1_day_before" class="flex-1 border rounded px-2 py-1 text-sm" />
       <select name="reminder_type" class="border rounded px-2 py-1 text-sm">
@@ -2799,10 +2812,10 @@ const ConversionCard: FC<{ label: string; value: number | null; benchmark: { min
   const isGood = value !== null && value >= benchmark.min;
   const isBad = value !== null && value < benchmark.min;
   return (
-    <div class={`text-center p-3 bg-${color}-50 rounded`}>
-      <p class="text-sm text-gray-600">{label}</p>
-      <p class={`text-2xl font-bold text-${color}-600`}>{value ?? '-'}%</p>
-      <p class={`text-xs mt-1 ${isGood ? 'text-green-600' : isBad ? 'text-red-600' : 'text-gray-400'}`}>
+    <div class={`text-center p-4 bg-${color}-50 rounded-xl`}>
+      <p class="text-xs text-slate-500 font-medium">{label}</p>
+      <p class={`text-2xl font-bold text-${color}-600 mt-1`}>{value ?? '-'}%</p>
+      <p class={`text-[11px] mt-1.5 ${isGood ? 'text-emerald-600' : isBad ? 'text-red-500' : 'text-slate-400'}`}>
         業界平均: {benchmark.min}-{benchmark.max}%
       </p>
     </div>
@@ -2930,8 +2943,8 @@ function statusColor(status: string): string {
     case 'consulted': return 'bg-green-100 text-green-700';
     case 'enrolled': return 'bg-indigo-100 text-indigo-700';
     case 'stalled': return 'bg-red-100 text-red-700';
-    case 'dropped': return 'bg-gray-100 text-gray-500';
-    default: return 'bg-gray-100 text-gray-500';
+    case 'dropped': return 'bg-slate-100 text-slate-500';
+    default: return 'bg-slate-100 text-slate-500';
   }
 }
 
@@ -2940,8 +2953,8 @@ function bookingStatusColor(status: string): string {
     case 'confirmed': return 'bg-blue-100 text-blue-700';
     case 'consulted': return 'bg-green-100 text-green-700';
     case 'no_show': return 'bg-red-100 text-red-700';
-    case 'cancelled': return 'bg-gray-100 text-gray-500';
-    default: return 'bg-gray-100 text-gray-500';
+    case 'cancelled': return 'bg-slate-100 text-slate-500';
+    default: return 'bg-slate-100 text-slate-500';
   }
 }
 
@@ -2971,8 +2984,8 @@ function actionStatusColor(status: string): string {
     case 'processing': return 'bg-blue-100 text-blue-700';
     case 'completed': return 'bg-green-100 text-green-700';
     case 'failed': return 'bg-red-100 text-red-700';
-    case 'cancelled': return 'bg-gray-100 text-gray-500';
-    default: return 'bg-gray-100 text-gray-500';
+    case 'cancelled': return 'bg-slate-100 text-slate-500';
+    default: return 'bg-slate-100 text-slate-500';
   }
 }
 
@@ -3506,7 +3519,7 @@ function statusBadgeColor(status: string): string {
     case 'consulted': return 'bg-purple-500/20 text-purple-300';
     case 'enrolled': return 'bg-amber-500/20 text-amber-300';
     case 'stalled': return 'bg-red-500/20 text-red-300';
-    default: return 'bg-gray-500/20 text-gray-300';
+    default: return 'bg-slate-500/20 text-slate-300';
   }
 }
 
