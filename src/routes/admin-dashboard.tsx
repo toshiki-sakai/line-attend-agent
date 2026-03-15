@@ -8,6 +8,8 @@ import { getAllFunnelMetrics, getDetailedAnalytics, generateRecommendations, BEN
 import type { HotLead, ActivityEvent, TodaysMission, StepDropoff, AIPerformanceMetrics } from '../services/analytics';
 import { calculateLeadScore, getLeadScores, generateStaffSuggestions, getScoreColor, getScoreBadgeColor } from '../services/lead-scoring';
 import type { LeadScore } from '../services/lead-scoring';
+import { calculateNoShowRisk } from '../services/no-show-predictor';
+import type { NoShowRisk } from '../services/no-show-predictor';
 import { formatDateTimeJST } from '../utils/datetime';
 import { hashSessionToken, verifySessionToken } from '../middleware/security';
 import { getDefaultConfigs } from '../config/default-scenarios';
@@ -135,6 +137,134 @@ const DESIGN_CSS = `
     border-radius: 4px;
   }
 
+  /* === Toast === */
+  @keyframes slide-out-right { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+  .toast { animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  .toast.toast-exit { animation: slide-out-right 0.25s ease forwards; }
+  .toast-success { border-left: 4px solid #10b981; background: #ecfdf5; color: #065f46; }
+  .toast-error { border-left: 4px solid #ef4444; background: #fef2f2; color: #991b1b; }
+  .toast-warning { border-left: 4px solid #f59e0b; background: #fffbeb; color: #92400e; }
+  .toast-info { border-left: 4px solid #3b82f6; background: #eff6ff; color: #1e40af; }
+
+  /* === Modal === */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+    animation: fade-in 0.15s ease;
+    display: none;
+  }
+  .modal-backdrop.active { display: flex; align-items: center; justify-content: center; }
+  .modal-card {
+    background: white; border-radius: 16px; padding: 24px; max-width: 400px; width: 90%;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+    animation: slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* === Search === */
+  .search-bar {
+    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 8px 14px 8px 38px; font-size: 14px; width: 100%;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: 12px center;
+  }
+  .search-bar:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 3px rgba(129,140,248,0.15); }
+
+  /* === Pagination === */
+  .pagination { display: flex; gap: 4px; align-items: center; justify-content: center; margin-top: 16px; }
+  .pagination a, .pagination span {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 32px; height: 32px; padding: 0 8px;
+    border-radius: 8px; font-size: 13px; font-weight: 500;
+    transition: all 0.15s;
+  }
+  .pagination a { color: #64748b; background: white; border: 1px solid #e2e8f0; }
+  .pagination a:hover { background: #f1f5f9; color: #334155; }
+  .pagination .active { background: #4f46e5; color: white; border: 1px solid #4f46e5; }
+  .pagination .disabled { opacity: 0.4; pointer-events: none; }
+
+  /* === Responsive Table → Cards === */
+  @media (max-width: 768px) {
+    .responsive-table thead { display: none; }
+    .responsive-table tbody tr {
+      display: block; margin-bottom: 12px; background: white;
+      border-radius: 12px; border: 1px solid #f1f5f9; padding: 12px 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .responsive-table tbody td {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; border: none !important;
+    }
+    .responsive-table tbody td::before {
+      content: attr(data-label); font-weight: 600; font-size: 11px;
+      color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+  }
+
+  /* === Touch targets === */
+  @media (max-width: 768px) {
+    button, a[href], select, input[type="submit"] {
+      min-height: 44px; min-width: 44px;
+    }
+  }
+
+  /* === Tooltip === */
+  .tooltip-wrapper { position: relative; display: inline-flex; }
+  .tooltip-content {
+    position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: white; font-size: 12px; padding: 6px 10px;
+    border-radius: 8px; white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+    z-index: 50;
+  }
+  .tooltip-content::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-top-color: #1e293b;
+  }
+  .tooltip-wrapper:hover .tooltip-content { opacity: 1; }
+
+  /* === Command Palette === */
+  .cmd-palette-backdrop {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 20vh;
+  }
+  .cmd-palette-backdrop.active { display: flex; animation: fade-in 0.1s ease; }
+  .cmd-palette {
+    background: white; border-radius: 16px; width: 90%; max-width: 540px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.2);
+    animation: slide-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+  }
+  .cmd-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; cursor: pointer; font-size: 14px;
+    transition: background 0.1s;
+  }
+  .cmd-item:hover, .cmd-item.selected { background: #f1f5f9; }
+
+  /* === Heatmap === */
+  .heatmap-cell {
+    width: 100%; aspect-ratio: 1; border-radius: 4px;
+    transition: opacity 0.2s;
+  }
+
+  /* === Progress countdown bar === */
+  @keyframes countdown { from { width: 100%; } to { width: 0%; } }
+  .countdown-bar { animation: countdown 30s linear; height: 3px; background: #6366f1; border-radius: 2px; }
+
+  /* === Confetti === */
+  .confetti-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 300; }
+  .confetti-piece {
+    position: absolute; width: 10px; height: 10px; opacity: 0;
+    animation: confetti-fall 3s ease-out forwards;
+  }
+  @keyframes confetti-fall {
+    0% { opacity: 1; transform: translateY(-20px) rotate(0deg); }
+    100% { opacity: 0; transform: translateY(100vh) rotate(720deg); }
+  }
+
   /* === Print === */
   @media print {
     nav, .sidebar-desktop, .mobile-nav { display: none !important; }
@@ -229,13 +359,229 @@ const Layout: FC<{ title: string; children: unknown }> = ({ title, children }) =
       </aside>
 
       {/* Main Content */}
-      <main class="main-with-sidebar ml-[220px] min-h-screen pt-0 md:pt-0" style="padding-top: 0">
+      <main class="main-with-sidebar ml-[220px] min-h-screen" style="padding-top: 0">
         <div class="max-w-6xl mx-auto px-6 py-8 md:px-8">
           <div class="slide-in">
             {children}
           </div>
         </div>
       </main>
+
+      {/* Toast Container */}
+      <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:150;display:flex;flex-direction:column;gap:8px;max-width:380px;"></div>
+
+      {/* Confirm Modal */}
+      <div id="confirm-modal" class="modal-backdrop">
+        <div class="modal-card">
+          <h3 id="confirm-title" class="font-bold text-slate-800 text-lg mb-2"></h3>
+          <p id="confirm-desc" class="text-sm text-slate-500 mb-5"></p>
+          <div class="flex gap-2 justify-end">
+            <button id="confirm-cancel" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 transition">キャンセル</button>
+            <button id="confirm-ok" class="px-4 py-2 rounded-xl text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition shadow-sm">実行</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Command Palette */}
+      <div id="cmd-palette-backdrop" class="cmd-palette-backdrop">
+        <div class="cmd-palette">
+          <div class="p-3 border-b border-slate-100">
+            <input id="cmd-input" type="text" placeholder="ページ・テナント・アクションを検索..." class="w-full bg-transparent text-sm outline-none placeholder-slate-400" />
+          </div>
+          <div id="cmd-results" class="max-h-[300px] overflow-y-auto py-1"></div>
+          <div class="px-4 py-2 border-t border-slate-100 text-[10px] text-slate-400 flex gap-4">
+            <span><kbd class="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">↑↓</kbd> 移動</span>
+            <span><kbd class="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Enter</kbd> 開く</span>
+            <span><kbd class="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">Esc</kbd> 閉じる</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Keyboard Shortcuts Modal */}
+      <div id="shortcuts-modal" class="modal-backdrop">
+        <div class="modal-card" style="max-width:480px">
+          <h3 class="font-bold text-slate-800 text-lg mb-4">キーボードショートカット</h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-500">検索にフォーカス</span><kbd class="bg-slate-100 px-2 py-0.5 rounded text-xs font-mono">/</kbd></div>
+            <div class="flex justify-between"><span class="text-slate-500">コマンドパレット</span><kbd class="bg-slate-100 px-2 py-0.5 rounded text-xs font-mono">⌘K</kbd></div>
+            <div class="flex justify-between"><span class="text-slate-500">ショートカット表示</span><kbd class="bg-slate-100 px-2 py-0.5 rounded text-xs font-mono">?</kbd></div>
+            <div class="flex justify-between"><span class="text-slate-500">ホームに移動</span><kbd class="bg-slate-100 px-2 py-0.5 rounded text-xs font-mono">g → h</kbd></div>
+          </div>
+          <button onclick="document.getElementById('shortcuts-modal').classList.remove('active')" class="mt-5 w-full py-2 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 transition">閉じる</button>
+        </div>
+      </div>
+
+      {/* Global JS: Toast, Confirm, Search, Keyboard, Command Palette, Auto-scroll */}
+      <script dangerouslySetInnerHTML={{__html: `
+(function() {
+  // === Toast System ===
+  window.showToast = function(message, type) {
+    type = type || 'info';
+    var container = document.getElementById('toast-container');
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type + ' rounded-xl px-4 py-3 shadow-lg text-sm font-medium flex items-center gap-2';
+    var icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+    toast.innerHTML = '<span class="font-bold text-base">' + (icons[type]||'ℹ') + '</span><span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(function() {
+      toast.classList.add('toast-exit');
+      setTimeout(function() { toast.remove(); }, 250);
+    }, 3000);
+  };
+
+  // Check URL for toast params
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('toast')) {
+    window.showToast(decodeURIComponent(params.get('msg') || '完了しました'), params.get('toast'));
+    // Clean URL
+    var url = new URL(window.location);
+    url.searchParams.delete('toast');
+    url.searchParams.delete('msg');
+    window.history.replaceState({}, '', url);
+  }
+
+  // === Confirm Dialog ===
+  var pendingForm = null;
+  window.confirmAction = function(title, desc, formEl) {
+    pendingForm = formEl;
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-desc').textContent = desc;
+    document.getElementById('confirm-modal').classList.add('active');
+  };
+  document.getElementById('confirm-cancel').addEventListener('click', function() {
+    document.getElementById('confirm-modal').classList.remove('active');
+    pendingForm = null;
+  });
+  document.getElementById('confirm-ok').addEventListener('click', function() {
+    document.getElementById('confirm-modal').classList.remove('active');
+    if (pendingForm) pendingForm.submit();
+    pendingForm = null;
+  });
+  document.getElementById('confirm-modal').addEventListener('click', function(e) {
+    if (e.target === this) { this.classList.remove('active'); pendingForm = null; }
+  });
+
+  // === Client-Side Search ===
+  window.initTableSearch = function(inputId, tableId) {
+    var input = document.getElementById(inputId);
+    var table = document.getElementById(tableId);
+    if (!input || !table) return;
+    var countEl = document.getElementById(inputId + '-count');
+    input.addEventListener('input', function() {
+      var q = this.value.toLowerCase();
+      var rows = table.querySelectorAll('tbody tr');
+      var visible = 0;
+      rows.forEach(function(row) {
+        var text = row.textContent.toLowerCase();
+        var match = !q || text.indexOf(q) >= 0;
+        row.style.display = match ? '' : 'none';
+        if (match) visible++;
+      });
+      if (countEl) countEl.textContent = visible + '件';
+    });
+  };
+
+  // === Keyboard Shortcuts ===
+  var gPressed = false;
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+      if (e.key === 'Escape') e.target.blur();
+      return;
+    }
+    // Cmd+K or Ctrl+K: Command palette
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      toggleCmdPalette();
+      return;
+    }
+    if (e.key === '/') {
+      e.preventDefault();
+      var searchInput = document.querySelector('.search-bar');
+      if (searchInput) searchInput.focus();
+      return;
+    }
+    if (e.key === '?') {
+      e.preventDefault();
+      document.getElementById('shortcuts-modal').classList.toggle('active');
+      return;
+    }
+    if (e.key === 'Escape') {
+      document.getElementById('shortcuts-modal').classList.remove('active');
+      closeCmdPalette();
+      document.getElementById('confirm-modal').classList.remove('active');
+      return;
+    }
+    // g + key navigation
+    if (e.key === 'g') { gPressed = true; setTimeout(function() { gPressed = false; }, 500); return; }
+    if (gPressed) {
+      gPressed = false;
+      if (e.key === 'h') { window.location.href = '/admin/'; return; }
+    }
+  });
+
+  // === Command Palette ===
+  var cmdItems = [
+    { label: 'ホーム', desc: 'ダッシュボード', url: '/admin/', icon: '🏠' },
+    { label: 'テナント作成', desc: '新しいテナントを追加', url: '/admin/tenants/new', icon: '➕' },
+    { label: 'システム状態', desc: 'アクション・エラー確認', url: '/admin/system', icon: '💓' },
+    { label: '使い方ガイド', desc: 'セットアップ手順', url: '/admin/guide', icon: '📖' },
+  ];
+  var cmdSelectedIdx = 0;
+  function toggleCmdPalette() {
+    var el = document.getElementById('cmd-palette-backdrop');
+    if (el.classList.contains('active')) { closeCmdPalette(); }
+    else { el.classList.add('active'); document.getElementById('cmd-input').value = ''; renderCmdResults(''); document.getElementById('cmd-input').focus(); }
+  }
+  function closeCmdPalette() {
+    document.getElementById('cmd-palette-backdrop').classList.remove('active');
+  }
+  function renderCmdResults(q) {
+    var results = cmdItems.filter(function(item) {
+      return !q || (item.label + item.desc).toLowerCase().indexOf(q.toLowerCase()) >= 0;
+    });
+    cmdSelectedIdx = 0;
+    var html = results.map(function(item, i) {
+      return '<a href="' + item.url + '" class="cmd-item' + (i === 0 ? ' selected' : '') + '"><span>' + item.icon + '</span><div><p class="font-medium text-slate-700">' + item.label + '</p><p class="text-xs text-slate-400">' + item.desc + '</p></div></a>';
+    }).join('');
+    document.getElementById('cmd-results').innerHTML = html || '<p class="text-center py-6 text-sm text-slate-400">結果なし</p>';
+  }
+  document.getElementById('cmd-input').addEventListener('input', function() { renderCmdResults(this.value); });
+  document.getElementById('cmd-palette-backdrop').addEventListener('click', function(e) { if (e.target === this) closeCmdPalette(); });
+  document.getElementById('cmd-input').addEventListener('keydown', function(e) {
+    var items = document.querySelectorAll('#cmd-results .cmd-item');
+    if (e.key === 'Escape') { closeCmdPalette(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdSelectedIdx = Math.min(cmdSelectedIdx+1, items.length-1); items.forEach(function(el,i){ el.classList.toggle('selected', i===cmdSelectedIdx); }); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); cmdSelectedIdx = Math.max(cmdSelectedIdx-1, 0); items.forEach(function(el,i){ el.classList.toggle('selected', i===cmdSelectedIdx); }); }
+    if (e.key === 'Enter') { e.preventDefault(); if (items[cmdSelectedIdx]) items[cmdSelectedIdx].click(); }
+  });
+
+  // === Auto-scroll chat containers ===
+  document.querySelectorAll('.chat-container').forEach(function(el) {
+    el.scrollTop = el.scrollHeight;
+  });
+
+  // === Confetti ===
+  window.showConfetti = function() {
+    var container = document.createElement('div');
+    container.className = 'confetti-container';
+    document.body.appendChild(container);
+    var colors = ['#4f46e5','#7c3aed','#f59e0b','#10b981','#ef4444','#ec4899'];
+    for (var i = 0; i < 50; i++) {
+      var piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random() * 100 + '%';
+      piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+      piece.style.animationDelay = Math.random() * 0.5 + 's';
+      piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '0';
+      container.appendChild(piece);
+    }
+    setTimeout(function() { container.remove(); }, 4000);
+  };
+  if (params.get('toast') === 'success' && params.get('msg') && params.get('msg').indexOf('成約') >= 0) {
+    window.showConfetti();
+  }
+})();
+      `}} />
 
       {/* Mobile bottom spacer */}
       <div class="mobile-nav h-14"></div>
@@ -357,6 +703,22 @@ dashboard.get('/admin/', async (c) => {
     getRecentActivity(c.env, 15),
   ]);
 
+  // Aggregate AI cost savings across all active tenants
+  let totalCostSaved = 0;
+  let totalHoursSaved = 0;
+  let totalAutoRate = 0;
+  let analyticsCount = 0;
+  for (const tid of (tenants || []).filter(t => t.is_active).map(t => t.id).slice(0, 5)) {
+    const a = await getDetailedAnalytics(tid, c.env);
+    if (a?.ai_performance) {
+      totalCostSaved += a.ai_performance.estimated_cost_saved;
+      totalHoursSaved += a.ai_performance.estimated_hours_saved;
+      totalAutoRate += a.ai_performance.auto_resolution_rate;
+      analyticsCount++;
+    }
+  }
+  const avgAutoRate = analyticsCount > 0 ? Math.round(totalAutoRate / analyticsCount) : 0;
+
   // Get mission data for each active tenant
   const activeTenantIds = (tenants || []).filter(t => t.is_active).map(t => t.id);
   const missions: Record<string, TodaysMission> = {};
@@ -447,6 +809,35 @@ dashboard.get('/admin/', async (c) => {
                   <p class="text-white/50 text-xs mt-1.5">手動対応必要</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Cost Savings Hero */}
+      {totalCostSaved > 0 && (
+        <div class="mb-8 gradient-dark rounded-2xl p-6 text-white shadow-xl slide-in overflow-hidden relative">
+          <div class="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
+          <div class="relative">
+            <div class="flex items-center gap-2 mb-4">
+              <div class="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              </div>
+              <h2 class="font-bold text-sm">AI導入効果（全テナント合計）</h2>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="text-center">
+                <p class="text-3xl font-extrabold text-amber-400 tracking-tight">&yen;{totalCostSaved.toLocaleString()}</p>
+                <p class="text-white/40 text-xs mt-1">推定コスト削減</p>
+              </div>
+              <div class="text-center">
+                <p class="text-3xl font-extrabold text-emerald-400 tracking-tight">{totalHoursSaved}h</p>
+                <p class="text-white/40 text-xs mt-1">推定削減工数</p>
+              </div>
+              <div class="text-center">
+                <p class="text-3xl font-extrabold tracking-tight">{avgAutoRate}%</p>
+                <p class="text-white/40 text-xs mt-1">AI自動対応率</p>
+              </div>
             </div>
           </div>
         </div>
@@ -566,16 +957,33 @@ dashboard.get('/admin/', async (c) => {
             </table>
           </div>
           {(!tenants || tenants.length === 0) && (
-            <div class="empty-state">
-              <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+            <div class="py-8 px-6">
+              {/* Welcome Banner */}
+              <div class="gradient-hero rounded-2xl p-8 text-white text-center mb-6 shadow-xl">
+                <div class="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mx-auto mb-4 float-gentle">
+                  <span class="text-2xl font-extrabold">AI</span>
+                </div>
+                <h2 class="text-xl font-bold mb-2">LINE Attend Agent へようこそ！</h2>
+                <p class="text-white/70 text-sm mb-6">3ステップで AI コンシェルジュを始めましょう</p>
+                <div class="grid grid-cols-3 gap-4 max-w-lg mx-auto mb-6">
+                  <div class="bg-white/10 rounded-xl p-3 border border-white/10">
+                    <div class="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center mx-auto mb-2 text-sm font-bold">1</div>
+                    <p class="text-xs text-white/80">テナント作成</p>
+                  </div>
+                  <div class="bg-white/10 rounded-xl p-3 border border-white/10">
+                    <div class="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center mx-auto mb-2 text-sm font-bold">2</div>
+                    <p class="text-xs text-white/80">LINE接続</p>
+                  </div>
+                  <div class="bg-white/10 rounded-xl p-3 border border-white/10">
+                    <div class="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center mx-auto mb-2 text-sm font-bold">3</div>
+                    <p class="text-xs text-white/80">テスト送信</p>
+                  </div>
+                </div>
+                <a href="/admin/tenants/new" class="inline-flex items-center gap-2 bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold text-sm hover:bg-white/90 transition shadow-lg">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  最初のテナントを作成
+                </a>
               </div>
-              <p class="text-slate-500 font-medium mb-1">テナントがまだありません</p>
-              <p class="text-slate-400 text-sm mb-4">最初のテナントを作成してAIエージェントを始めましょう</p>
-              <a href="/admin/tenants/new" class="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold transition">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                テナントを作成
-              </a>
             </div>
           )}
         </div>
@@ -639,79 +1047,103 @@ dashboard.get('/admin/tenants/new', (c) => {
           </div>
         </div>
 
-        <form method="post" action="/admin/tenants/new" class="space-y-6">
-          {/* 基本情報 */}
-          <div class="card p-6">
-            <div class="flex items-center gap-2 mb-5">
-              <div class="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+        {/* Wizard Progress Bar */}
+        <div class="mb-6">
+          <div class="flex gap-2">
+            <div id="step-bar-1" class="flex-1 h-1.5 rounded-full bg-indigo-500 transition-colors"></div>
+            <div id="step-bar-2" class="flex-1 h-1.5 rounded-full bg-slate-200 transition-colors"></div>
+            <div id="step-bar-3" class="flex-1 h-1.5 rounded-full bg-slate-200 transition-colors"></div>
+          </div>
+          <div class="flex justify-between mt-2">
+            <span id="step-label-1" class="text-xs font-semibold text-indigo-600">1. 基本情報</span>
+            <span id="step-label-2" class="text-xs font-medium text-slate-400">2. LINE接続</span>
+            <span id="step-label-3" class="text-xs font-medium text-slate-400">3. 詳細設定</span>
+          </div>
+        </div>
+
+        <form id="wizard-form" method="post" action="/admin/tenants/new" class="space-y-6">
+          {/* Step 1: 基本情報 */}
+          <div id="wizard-step-1">
+            <div class="card p-6">
+              <div class="flex items-center gap-2 mb-5">
+                <div class="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+                </div>
+                <h2 class="font-bold text-slate-800">基本情報</h2>
               </div>
-              <h2 class="font-bold text-slate-800">基本情報</h2>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">スクール名 <span class="text-red-400">*</span></label>
+                  <input type="text" name="name" id="field-name" required class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="例: ABCプログラミングスクール" />
+                  <p id="err-name" class="text-xs text-red-500 mt-1 hidden">2文字以上入力してください</p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">
+                    スクール情報 <span class="text-red-400">*</span>
+                    <span class="text-slate-400 font-normal ml-1">(AIの会話の土台になります)</span>
+                  </label>
+                  <textarea name="school_context" id="field-context" rows={5} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder={"例: ABCプログラミングスクールは、未経験からWebエンジニア転職を目指す方向けのオンラインスクールです。\n\n特徴:\n- 3ヶ月の集中カリキュラム\n- 現役エンジニアによる1on1メンタリング\n- 転職保証付き\n\n無料相談会では、受講生の転職実績やカリキュラムの詳細をご紹介します。"}></textarea>
+                  <div class="flex justify-between mt-1.5">
+                    <p id="err-context" class="text-xs text-red-500 hidden">20文字以上入力してください</p>
+                    <p id="context-count" class="text-xs text-slate-400 ml-auto">0文字</p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">スクール名 <span class="text-red-400">*</span></label>
-                <input type="text" name="name" required class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="例: ABCプログラミングスクール" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">
-                  スクール情報 <span class="text-red-400">*</span>
-                  <span class="text-slate-400 font-normal ml-1">(AIの会話の土台になります)</span>
-                </label>
-                <textarea name="school_context" rows={5} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder={"例: ABCプログラミングスクールは、未経験からWebエンジニア転職を目指す方向けのオンラインスクールです。\n\n特徴:\n- 3ヶ月の集中カリキュラム\n- 現役エンジニアによる1on1メンタリング\n- 転職保証付き\n\n無料相談会では、受講生の転職実績やカリキュラムの詳細をご紹介します。"}></textarea>
-                <p class="text-xs text-slate-400 mt-1.5">詳しく書くほどAIが的確な会話をします</p>
-              </div>
+            <div class="flex justify-end mt-4">
+              <button type="button" id="next-1" class="gradient-hero text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition">次へ →</button>
             </div>
           </div>
 
-          {/* LINE接続（オプショナル） */}
-          <details class="card overflow-hidden group">
-            <summary class="p-6 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
-              <div class="flex items-center gap-2">
+          {/* Step 2: LINE接続 */}
+          <div id="wizard-step-2" class="hidden">
+            <div class="card p-6">
+              <div class="flex items-center gap-2 mb-4">
                 <div class="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>
                 </div>
                 <div>
-                  <h2 class="font-bold text-slate-800 text-sm">LINE直接接続</h2>
-                  <p class="text-xs text-slate-400">Lステップを使わない場合のみ必要</p>
+                  <h2 class="font-bold text-slate-800">LINE直接接続</h2>
+                  <p class="text-xs text-slate-400">Lステップを使わない場合のみ必要（スキップ可）</p>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-6 pb-6 space-y-3 border-t border-slate-100 pt-4">
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel ID</label>
-                <input type="text" name="line_channel_id" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="LINE Developers Consoleから取得" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Secret</label>
-                <input type="text" name="line_channel_secret" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
-                <textarea name="line_channel_access_token" rows={2} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition"></textarea>
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel ID</label>
+                  <input type="text" name="line_channel_id" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" placeholder="LINE Developers Consoleから取得" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Secret</label>
+                  <input type="text" name="line_channel_secret" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
+                  <textarea name="line_channel_access_token" rows={2} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition"></textarea>
+                </div>
               </div>
             </div>
-          </details>
+            <div class="flex justify-between mt-4">
+              <button type="button" id="prev-2" class="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 transition">← 戻る</button>
+              <button type="button" id="next-2" class="gradient-hero text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition">次へ →</button>
+            </div>
+          </div>
 
-          {/* 会話フロー設定（折りたたみ） */}
-          <details class="card overflow-hidden group">
-            <summary class="p-6 cursor-pointer hover:bg-slate-50/50 transition flex items-center justify-between">
-              <div class="flex items-center gap-2">
+          {/* Step 3: 詳細設定 */}
+          <div id="wizard-step-3" class="hidden">
+            <div class="card p-6 space-y-4">
+              <div class="flex items-center gap-2 mb-2">
                 <div class="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                 </div>
                 <div>
-                  <h2 class="font-bold text-slate-800 text-sm">詳細設定</h2>
+                  <h2 class="font-bold text-slate-800">詳細設定</h2>
                   <p class="text-xs text-slate-400">推奨設定がプリセット済み・あとから変更可</p>
                 </div>
               </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="group-open:rotate-180 transition-transform"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-6 pb-6 space-y-4 border-t border-slate-100 pt-4">
               <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">シナリオ設定 (JSON)</label>
-                <textarea name="scenario_config" rows={6} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{JSON.stringify(defaults.scenario_config, null, 2)}</textarea>
+                <textarea name="scenario_config" id="field-scenario" rows={6} class="w-full border border-slate-200 rounded-xl px-4 py-2.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition">{JSON.stringify(defaults.scenario_config, null, 2)}</textarea>
+                <p id="err-scenario" class="text-xs text-red-500 mt-1 hidden">JSONの形式が正しくありません</p>
               </div>
 
         {/* Hearing Config */}
@@ -895,13 +1327,67 @@ dashboard.get('/admin/tenants/new', (c) => {
         </div>
 
             </div>
-          </details>
 
-          {/* Submit */}
-          <button type="submit" class="w-full gradient-hero text-white px-6 py-3.5 rounded-xl hover:opacity-90 transition text-base font-bold shadow-lg shadow-indigo-500/20 active:scale-[0.98]">
-            テナントを作成
-          </button>
+            <div class="flex justify-between mt-4">
+              <button type="button" id="prev-3" class="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 transition">← 戻る</button>
+              <button type="submit" class="gradient-hero text-white px-8 py-3 rounded-xl text-base font-bold shadow-lg shadow-indigo-500/20 hover:opacity-90 transition active:scale-[0.98]">
+                テナントを作成
+              </button>
+            </div>
+          </div>
         </form>
+
+        {/* Wizard JS */}
+        <script dangerouslySetInnerHTML={{__html: `
+(function() {
+  var step = 1;
+  function showStep(n) {
+    step = n;
+    for (var i = 1; i <= 3; i++) {
+      var el = document.getElementById('wizard-step-' + i);
+      if (el) el.classList.toggle('hidden', i !== n);
+      var bar = document.getElementById('step-bar-' + i);
+      if (bar) { bar.style.background = i <= n ? '#4f46e5' : '#e2e8f0'; }
+      var label = document.getElementById('step-label-' + i);
+      if (label) { label.style.color = i === n ? '#4f46e5' : i < n ? '#10b981' : '#94a3b8'; label.style.fontWeight = i === n ? '600' : '500'; }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Inline validation
+  var nameEl = document.getElementById('field-name');
+  var ctxEl = document.getElementById('field-context');
+  var ctxCount = document.getElementById('context-count');
+  if (nameEl) nameEl.addEventListener('blur', function() {
+    document.getElementById('err-name').classList.toggle('hidden', this.value.length >= 2);
+    this.style.borderColor = this.value.length >= 2 ? '' : '#ef4444';
+  });
+  if (ctxEl) {
+    ctxEl.addEventListener('input', function() {
+      if (ctxCount) ctxCount.textContent = this.value.length + '文字';
+    });
+    ctxEl.addEventListener('blur', function() {
+      document.getElementById('err-context').classList.toggle('hidden', this.value.length >= 20);
+      this.style.borderColor = this.value.length >= 20 ? '' : '#ef4444';
+    });
+  }
+  var scenarioEl = document.getElementById('field-scenario');
+  if (scenarioEl) scenarioEl.addEventListener('blur', function() {
+    try { JSON.parse(this.value); document.getElementById('err-scenario').classList.add('hidden'); this.style.borderColor = ''; }
+    catch(e) { document.getElementById('err-scenario').classList.remove('hidden'); this.style.borderColor = '#ef4444'; }
+  });
+
+  // Navigation
+  document.getElementById('next-1')?.addEventListener('click', function() {
+    if (nameEl && nameEl.value.length < 2) { nameEl.focus(); nameEl.style.borderColor = '#ef4444'; document.getElementById('err-name').classList.remove('hidden'); return; }
+    if (ctxEl && ctxEl.value.length < 20) { ctxEl.focus(); ctxEl.style.borderColor = '#ef4444'; document.getElementById('err-context').classList.remove('hidden'); return; }
+    showStep(2);
+  });
+  document.getElementById('next-2')?.addEventListener('click', function() { showStep(3); });
+  document.getElementById('prev-2')?.addEventListener('click', function() { showStep(1); });
+  document.getElementById('prev-3')?.addEventListener('click', function() { showStep(2); });
+})();
+        `}} />
       </div>
     </Layout>
   );
@@ -934,7 +1420,7 @@ dashboard.post('/admin/tenants/new', async (c) => {
       </Layout>
     );
   }
-  return c.redirect(`/admin/tenants/${data.id}`);
+  return c.redirect(`/admin/tenants/${data.id}?toast=success&msg=${encodeURIComponent('テナントを作成しました')}`);
 });
 
 // --- Tenant Detail / Edit ---
@@ -1405,7 +1891,7 @@ dashboard.post('/admin/tenants/:id/edit', async (c) => {
   const supabase = getSupabaseClient(c.env);
   await supabase.from('tenants').update(payload).eq('id', id);
   await invalidateTenantCache(id, c.env);
-  return c.redirect(`/admin/tenants/${id}`);
+  return c.redirect(`/admin/tenants/${id}?toast=success&msg=${encodeURIComponent('設定を保存しました')}`);
 });
 
 // --- Users List ---
@@ -1415,15 +1901,23 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
   const statusFilter = c.req.query('status') || '';
 
   const { data: tenant } = await supabase.from('tenants').select('name, hearing_config').eq('id', id).single();
+  const page = parseInt(c.req.query('page') || '1') || 1;
+  const perPage = 25;
+
+  let countQ = supabase.from('end_users').select('*', { count: 'exact', head: true }).eq('tenant_id', id);
+  if (statusFilter) countQ = countQ.eq('status', statusFilter);
+  const { count: totalCount } = await countQ;
+
   let q = supabase
     .from('end_users')
     .select('*')
     .eq('tenant_id', id)
     .order('updated_at', { ascending: false })
-    .limit(100);
+    .range((page - 1) * perPage, page * perPage - 1);
 
   if (statusFilter) q = q.eq('status', statusFilter);
   const { data: users } = await q;
+  const totalPages = Math.ceil((totalCount || 0) / perPage);
 
   // Calculate lead scores for all users
   const leadScores = await getLeadScores(id, c.env);
@@ -1448,16 +1942,49 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
         </div>
       </div>
 
+      {/* Lead Score Distribution */}
+      {(() => {
+        const gradeCount: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+        leadScores.forEach((s) => { if (s.grade in gradeCount) gradeCount[s.grade]++; });
+        const maxCount = Math.max(...Object.values(gradeCount), 1);
+        const gradeColors: Record<string, string> = { S: 'from-purple-500 to-indigo-500', A: 'from-emerald-500 to-emerald-600', B: 'from-blue-400 to-blue-500', C: 'from-amber-400 to-amber-500', D: 'from-slate-300 to-slate-400' };
+        return Object.values(gradeCount).some(v => v > 0) ? (
+          <div class="card p-4 mb-5">
+            <div class="flex items-center gap-2 mb-3">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">リードスコア分布</span>
+            </div>
+            <div class="flex gap-3 items-end h-20">
+              {Object.entries(gradeCount).map(([grade, count]) => (
+                <div class="flex-1 flex flex-col items-center gap-1">
+                  <span class="text-xs font-bold text-slate-600">{count}</span>
+                  <div class="w-full rounded-t-md bg-gradient-to-t" style={`height: ${Math.max(4, (count / maxCount) * 60)}px`}>
+                    <div class={`w-full h-full rounded-t-md bg-gradient-to-r ${gradeColors[grade]}`}></div>
+                  </div>
+                  <span class="text-[10px] font-bold text-slate-400">{grade}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null;
+      })()}
+
       {/* Status filter */}
-      <div class="mb-5 flex gap-1.5 flex-wrap">
+      <div class="mb-4 flex gap-1.5 flex-wrap">
         <a href={`/admin/tenants/${id}/users`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!statusFilter ? 'gradient-hero text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
         {['active', 'booked', 'consulted', 'enrolled', 'stalled', 'dropped'].map((s) => (
           <a href={`/admin/tenants/${id}/users?status=${s}`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === s ? 'gradient-hero text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{statusLabel(s)}</a>
         ))}
       </div>
 
+      {/* Search */}
+      <div class="mb-4 flex items-center gap-3">
+        <input id="user-search" type="text" placeholder="ユーザーを検索..." class="search-bar flex-1" />
+        <span id="user-search-count" class="text-xs text-slate-400">{(users || []).length}件</span>
+      </div>
+
       <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-        <table class="w-full">
+        <table id="user-table" class="w-full responsive-table">
           <thead>
             <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100">
               <th class="text-left px-5 py-3 font-medium">ユーザー</th>
@@ -1476,7 +2003,7 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
               const hearingKeys = Object.keys(u.hearing_data || {});
               return (
                 <tr class="border-t border-slate-50 hover:bg-slate-50/50 transition slide-in">
-                  <td class="px-5 py-3">
+                  <td class="px-5 py-3" data-label="ユーザー">
                     <div class="flex items-center gap-2">
                       <div class={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${statusColor(u.status)}`}>
                         {(u.display_name || '?')[0]}
@@ -1489,7 +2016,7 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
                       </div>
                     </div>
                   </td>
-                  <td class="px-5 py-3 text-center">
+                  <td class="px-5 py-3 text-center" data-label="スコア">
                     {score && (
                       <div class="flex flex-col items-center">
                         <span class={`inline-block px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreBadgeColor(score.grade)}`}>
@@ -1532,11 +2059,15 @@ dashboard.get('/admin/tenants/:id/users', async (c) => {
           </tbody>
         </table>
         {(!users || users.length === 0) && (
-          <div class="p-8 text-center">
-            <p class="text-slate-400">ユーザーがまだいません</p>
-          </div>
+          <EmptyState
+            icon="👥"
+            title="ユーザーがまだいません"
+            description="LINEで友だち追加されるとユーザーが表示されます"
+          />
         )}
       </div>
+      <PaginationBar currentPage={page} totalPages={totalPages} baseUrl={`/admin/tenants/${id}/users${statusFilter ? `?status=${statusFilter}` : ''}`} />
+      <script dangerouslySetInnerHTML={{__html: `window.initTableSearch('user-search', 'user-table');`}} />
     </Layout>
   );
 });
@@ -1580,9 +2111,9 @@ dashboard.get('/admin/tenants/:id/users/:userId', async (c) => {
         <h1 class="text-xl font-bold text-slate-800">{user.display_name || '(名前なし)'}</h1>
       </div>
 
-      <div class="grid grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column: User profile + Lead Score + controls */}
-        <div class="space-y-4">
+        <div class="space-y-4 order-2 lg:order-1">
           {/* LEAD SCORE CARD - The killer feature */}
           <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
             <div class={`p-4 bg-gradient-to-r ${getScoreColor(leadScore.grade)} text-white`}>
@@ -1675,7 +2206,7 @@ dashboard.get('/admin/tenants/:id/users/:userId', async (c) => {
               <h3 class="font-bold text-sm text-slate-700">対応モード</h3>
               {user.is_staff_takeover && <span class="w-2 h-2 rounded-full bg-orange-500 pulse-dot"></span>}
             </div>
-            <form method="post" action={`/admin/tenants/${tenantId}/users/${userId}/takeover`}>
+            <form id="takeover-form" method="post" action={`/admin/tenants/${tenantId}/users/${userId}/takeover`} onsubmit="event.preventDefault(); window.confirmAction('対応モード切替', 'この操作を実行しますか？', this);">
               <input type="hidden" name="takeover" value={user.is_staff_takeover ? 'off' : 'on'} />
               <button type="submit" class={`w-full py-2 rounded-lg text-sm font-bold transition ${
                 user.is_staff_takeover
@@ -1732,7 +2263,7 @@ dashboard.get('/admin/tenants/:id/users/:userId', async (c) => {
         </div>
 
         {/* Right column: Chat + AI suggestions + send */}
-        <div class="col-span-2 flex flex-col">
+        <div class="lg:col-span-2 flex flex-col order-1 lg:order-2">
           {/* Journey timeline */}
           <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-4 mb-4">
             <div class="flex items-center gap-1 overflow-x-auto">
@@ -1817,12 +2348,27 @@ dashboard.get('/admin/tenants/:id/users/:userId', async (c) => {
               )}
             </div>
 
-            {/* Send form */}
+            {/* Send form with optimistic UI */}
             <div class="border-t border-slate-100 p-4 bg-white">
-              <form method="post" action={`/admin/tenants/${tenantId}/users/${userId}/send`} class="flex gap-2">
-                <input type="text" name="message" required placeholder="スタッフとしてメッセージを送信..." class="flex-1 border border-slate-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
+              <form id="staff-send-form" method="post" action={`/admin/tenants/${tenantId}/users/${userId}/send`} class="flex gap-2">
+                <input type="text" name="message" id="staff-msg-input" required placeholder="スタッフとしてメッセージを送信..." class="flex-1 border border-slate-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 transition" />
                 <button type="submit" class="gradient-hero text-white px-5 py-2.5 rounded-full hover:opacity-90 transition text-sm font-medium shadow-md">送信</button>
               </form>
+              <script dangerouslySetInnerHTML={{__html: `
+document.getElementById('staff-send-form').addEventListener('submit', function(e) {
+  var input = document.getElementById('staff-msg-input');
+  var msg = input.value.trim();
+  if (!msg) return;
+  var chat = document.querySelector('.chat-container');
+  if (chat) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'flex justify-end slide-in';
+    wrapper.innerHTML = '<div class="max-w-[75%] px-4 py-2.5 text-sm line-bubble-staff opacity-70"><p class="text-[10px] font-bold text-orange-600 mb-1">スタッフ（送信中...）</p><p class="whitespace-pre-wrap leading-relaxed">' + msg.replace(/</g,'&lt;') + '</p></div>';
+    chat.appendChild(wrapper);
+    chat.scrollTop = chat.scrollHeight;
+  }
+});
+              `}} />
               {/* Quick reply templates */}
               <div class="flex gap-2 mt-2 flex-wrap">
                 {getQuickReplies(user.status).map((qr) => (
@@ -1847,6 +2393,38 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
   const analytics = await getDetailedAnalytics(id, c.env);
   const recommendations = analytics ? generateRecommendations(analytics) : [];
   const mission = await getTodaysMission(id, c.env);
+
+  // Intent distribution
+  const { data: intentData } = await supabase
+    .from('conversations')
+    .select('ai_metadata')
+    .eq('tenant_id', id)
+    .not('ai_metadata->detected_intent', 'is', null);
+
+  const intentCounts: Record<string, number> = {};
+  for (const row of intentData || []) {
+    const intent = (row.ai_metadata as Record<string, string>)?.detected_intent;
+    if (intent && intent !== 'none') {
+      intentCounts[intent] = (intentCounts[intent] || 0) + 1;
+    }
+  }
+  const maxIntentCount = Math.max(...Object.values(intentCounts), 1);
+
+  // Activity heatmap (day x hour)
+  const { data: heatmapData } = await supabase
+    .from('conversations')
+    .select('created_at')
+    .eq('tenant_id', id)
+    .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+
+  const heatmap: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const row of heatmapData || []) {
+    const d = new Date(row.created_at);
+    const jstHour = (d.getUTCHours() + 9) % 24;
+    const jstDay = (d.getUTCDay() + (d.getUTCHours() + 9 >= 24 ? 1 : 0)) % 7;
+    heatmap[jstDay][jstHour]++;
+  }
+  const maxHeatmapVal = Math.max(...heatmap.flat(), 1);
 
   const stepLabelMap: Record<string, string> = {
     welcome: '初回挨拶', hearing_start: 'ヒアリング', pre_booking_nudge: '予約前ナッジ',
@@ -2095,6 +2673,58 @@ dashboard.get('/admin/tenants/:id/analytics', async (c) => {
             </div>
           )}
 
+          {/* Intent Distribution */}
+          {Object.keys(intentCounts).length > 0 && (
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-6">
+              <h2 class="text-lg font-bold mb-1">インテント分布</h2>
+              <p class="text-xs text-slate-400 mb-4">AIが検出したユーザーの意図の分布</p>
+              <div class="space-y-2.5">
+                {Object.entries(intentCounts).sort((a, b) => b[1] - a[1]).map(([intent, count]) => (
+                  <div class="flex items-center gap-3">
+                    <span class="w-24 text-xs text-slate-600 font-medium text-right">{intentLabel(intent)}</span>
+                    <div class="flex-1 bg-slate-100 rounded-full h-5 relative overflow-hidden">
+                      <div class="h-full bg-gradient-to-r from-indigo-400 to-indigo-500 rounded-full transition-all" style={`width: ${Math.round((count / maxIntentCount) * 100)}%`}>
+                        <span class="absolute right-2 top-0 h-full flex items-center text-[10px] font-bold text-white">{count}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Activity Heatmap */}
+          {(heatmapData || []).length > 0 && (
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-6">
+              <h2 class="text-lg font-bold mb-1">時間帯別活動ヒートマップ</h2>
+              <p class="text-xs text-slate-400 mb-4">直近30日のメッセージ活動（JST）</p>
+              <div class="overflow-x-auto">
+                <div style="display:grid;grid-template-columns:48px repeat(24, 1fr);gap:2px;min-width:600px;">
+                  {/* Hour labels */}
+                  <div></div>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <div class="text-[9px] text-slate-400 text-center">{h}</div>
+                  ))}
+                  {/* Day rows */}
+                  {['日', '月', '火', '水', '木', '金', '土'].map((day, dayIdx) => (
+                    <>
+                      <div class="text-[10px] text-slate-500 font-medium flex items-center">{day}</div>
+                      {Array.from({ length: 24 }, (_, h) => {
+                        const val = heatmap[dayIdx][h];
+                        const opacity = val > 0 ? Math.max(0.15, val / maxHeatmapVal) : 0.04;
+                        return (
+                          <Tooltip text={`${day} ${h}時: ${val}件`}>
+                            <div class="heatmap-cell" style={`background: rgba(99,102,241,${opacity})`}></div>
+                          </Tooltip>
+                        );
+                      })}
+                    </>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Action health */}
           {(analytics.actions.failed_24h > 0 || analytics.actions.pending > 10) && (
             <div class="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
@@ -2131,6 +2761,40 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
   if (statusFilter) q = q.eq('status', statusFilter);
   const { data: bookings } = await q;
 
+  // Calculate no-show risk for confirmed bookings
+  const noShowRisks = new Map<string, NoShowRisk>();
+  let highRiskCount = 0;
+  for (const b of (bookings || []).filter(b => b.status === 'confirmed')) {
+    const eu = b.end_users as Record<string, unknown>;
+    const { count: msgCount } = await supabase
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('end_user_id', b.end_user_id)
+      .gte('created_at', b.created_at);
+
+    const { count: totalMsgCount } = await supabase
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('end_user_id', b.end_user_id);
+
+    const { count: userMsgCount } = await supabase
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('end_user_id', b.end_user_id)
+      .eq('role', 'user');
+
+    const responseRate = (totalMsgCount || 0) > 0 ? (userMsgCount || 0) / (totalMsgCount || 1) : 0;
+
+    const risk = calculateNoShowRisk(
+      { last_response_at: eu.last_response_at as string | null, hearing_data: eu.hearing_data as Record<string, string> || {} } as import('../types').EndUser,
+      { scheduled_at: b.scheduled_at, created_at: b.created_at } as import('../types').Booking,
+      msgCount || 0,
+      responseRate
+    );
+    noShowRisks.set(b.id as string, risk);
+    if (risk.level === 'high' || risk.level === 'critical') highRiskCount++;
+  }
+
   return c.html(
     <Layout title="予約管理">
       <div class="mb-6">
@@ -2141,6 +2805,19 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
         <h1 class="text-xl font-bold text-slate-800">予約管理</h1>
       </div>
 
+      {/* High risk banner */}
+      {highRiskCount > 0 && (
+        <div class="mb-5 bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 slide-in">
+          <div class="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div>
+            <p class="font-bold text-red-700 text-sm">高リスク予約: {highRiskCount}件</p>
+            <p class="text-xs text-red-500">ノーショーリスクが高い予約があります。リマインドの送信を検討してください。</p>
+          </div>
+        </div>
+      )}
+
       {/* Status filter */}
       <div class="mb-4 flex gap-2">
         <a href={`/admin/tenants/${id}/bookings`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${!statusFilter ? 'bg-indigo-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>全て</a>
@@ -2148,13 +2825,20 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
         <a href={`/admin/tenants/${id}/bookings?status=no_show`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'no_show' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>ノーショー</a>
       </div>
 
+      {/* Search */}
+      <div class="mb-4 flex items-center gap-3">
+        <input id="booking-search" type="text" placeholder="予約を検索..." class="search-bar flex-1" />
+        <span id="booking-search-count" class="text-xs text-slate-400">{(bookings || []).length}件</span>
+      </div>
+
       <div class="card overflow-x-auto">
-        <table class="w-full text-sm">
+        <table id="booking-table" class="w-full text-sm responsive-table">
           <thead>
             <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
               <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
               <th class="text-left px-5 py-2.5 font-semibold">予約日時</th>
               <th class="text-left px-5 py-2.5 font-semibold">ステータス</th>
+              <th class="text-left px-5 py-2.5 font-semibold">リスク</th>
               <th class="text-left px-5 py-2.5 font-semibold">リマインド</th>
               <th class="text-left px-5 py-2.5 font-semibold">操作</th>
             </tr>
@@ -2162,23 +2846,27 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
           <tbody>
             {(bookings || []).map((b: Record<string, unknown>) => {
               const eu = b.end_users as Record<string, string>;
+              const risk = noShowRisks.get(b.id as string);
               return (
                 <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
-                  <td class="px-5 py-3.5 text-slate-700 font-medium">{eu?.display_name || '(名前なし)'}</td>
-                  <td class="px-5 py-3.5 text-slate-500 text-xs">{formatDateTimeJST(b.scheduled_at as string)}</td>
-                  <td class="px-5 py-3.5">
+                  <td class="px-5 py-3.5 text-slate-700 font-medium" data-label="ユーザー">{eu?.display_name || '(名前なし)'}</td>
+                  <td class="px-5 py-3.5 text-slate-500 text-xs" data-label="予約日時">{formatDateTimeJST(b.scheduled_at as string)}</td>
+                  <td class="px-5 py-3.5" data-label="ステータス">
                     <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${bookingStatusColor(b.status as string)}`}>{bookingStatusLabel(b.status as string)}</span>
                   </td>
-                  <td class="px-5 py-3.5 text-slate-500">{String(b.reminder_count)}</td>
-                  <td class="px-5 py-3.5 space-x-2">
+                  <td class="px-5 py-3.5" data-label="リスク">
+                    {risk ? <NoShowBadge risk={risk} /> : <span class="text-slate-300 text-xs">-</span>}
+                  </td>
+                  <td class="px-5 py-3.5 text-slate-500" data-label="リマインド">{String(b.reminder_count)}</td>
+                  <td class="px-5 py-3.5 space-x-2" data-label="操作">
                     {b.status === 'confirmed' && (
-                      <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline">
+                      <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline" onsubmit="event.preventDefault(); window.confirmAction('相談済みに変更', 'この予約を相談済みとして記録しますか？', this);">
                         <input type="hidden" name="status" value="consulted" />
                         <button type="submit" class="text-emerald-600 hover:text-emerald-700 text-xs font-medium transition">相談済み</button>
                       </form>
                     )}
                     {b.status === 'confirmed' && (
-                      <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline">
+                      <form method="post" action={`/admin/tenants/${id}/bookings/${b.id}/status`} class="inline" onsubmit="event.preventDefault(); window.confirmAction('ノーショー記録', 'この予約をノーショーとして記録しますか？', this);">
                         <input type="hidden" name="status" value="no_show" />
                         <button type="submit" class="text-red-500 hover:text-red-600 text-xs font-medium transition">ノーショー</button>
                       </form>
@@ -2190,12 +2878,14 @@ dashboard.get('/admin/tenants/:id/bookings', async (c) => {
           </tbody>
         </table>
         {(!bookings || bookings.length === 0) && (
-          <div class="py-12 text-center">
-            <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <p class="text-slate-400 text-sm">予約がまだありません</p>
-          </div>
+          <EmptyState
+            icon="📅"
+            title="予約がまだありません"
+            description="ユーザーが予約するとここに表示されます"
+          />
         )}
       </div>
+      <script dangerouslySetInnerHTML={{__html: `window.initTableSearch('booking-search', 'booking-table');`}} />
     </Layout>
   );
 });
@@ -2222,7 +2912,8 @@ dashboard.post('/admin/tenants/:id/bookings/:bookingId/status', async (c) => {
       .eq('id', booking.end_user_id);
   }
 
-  return c.redirect(`/admin/tenants/${id}/bookings`);
+  const statusMsg = status === 'consulted' ? '相談済みに変更しました' : status === 'no_show' ? 'ノーショーとして記録しました' : 'ステータスを変更しました';
+  return c.redirect(`/admin/tenants/${id}/bookings?toast=success&msg=${encodeURIComponent(statusMsg)}`);
 });
 
 // --- User status update ---
@@ -2239,7 +2930,9 @@ dashboard.post('/admin/tenants/:id/users/:userId/status', async (c) => {
     .eq('id', userId)
     .eq('tenant_id', id);
 
-  return c.redirect(`/admin/tenants/${id}/users/${userId}`);
+  const enrollMsg = status === 'enrolled' ? '成約おめでとうございます！' : 'ステータスを変更しました';
+  const toastType = status === 'enrolled' ? 'success' : 'info';
+  return c.redirect(`/admin/tenants/${id}/users/${userId}?toast=${toastType}&msg=${encodeURIComponent(enrollMsg)}`);
 });
 
 // --- Staff Takeover Toggle ---
@@ -2256,7 +2949,8 @@ dashboard.post('/admin/tenants/:id/users/:userId/takeover', async (c) => {
     .eq('id', userId)
     .eq('tenant_id', id);
 
-  return c.redirect(`/admin/tenants/${id}/users/${userId}`);
+  const takeoverMsg = takeover ? 'スタッフ対応に切り替えました' : 'AI対応に戻しました';
+  return c.redirect(`/admin/tenants/${id}/users/${userId}?toast=info&msg=${encodeURIComponent(takeoverMsg)}`);
 });
 
 // --- Staff Send Message ---
@@ -2287,7 +2981,7 @@ dashboard.post('/admin/tenants/:id/users/:userId/send', async (c) => {
       .eq('id', userId);
   }
 
-  return c.redirect(`/admin/tenants/${tenantId}/users/${userId}`);
+  return c.redirect(`/admin/tenants/${tenantId}/users/${userId}?toast=success&msg=${encodeURIComponent('メッセージを送信しました')}`);
 });
 
 // --- Scheduled Actions View ---
@@ -2324,8 +3018,14 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
         <a href={`/admin/tenants/${id}/actions?status=completed`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${statusFilter === 'completed' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>完了</a>
       </div>
 
+      {/* Search */}
+      <div class="mb-4 flex items-center gap-3">
+        <input id="action-search" type="text" placeholder="アクションを検索..." class="search-bar flex-1" />
+        <span id="action-search-count" class="text-xs text-slate-400">{(actions || []).length}件</span>
+      </div>
+
       <div class="card overflow-x-auto">
-        <table class="w-full text-sm">
+        <table id="action-table" class="w-full text-sm responsive-table">
           <thead>
             <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
               <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
@@ -2341,23 +3041,25 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
               const eu = a.end_users as Record<string, string>;
               return (
                 <tr class="border-t border-slate-100 hover:bg-slate-50/50 transition">
-                  <td class="px-5 py-3.5 text-slate-700 font-medium text-sm">{eu?.display_name || '(名前なし)'}</td>
-                  <td class="px-5 py-3.5">
+                  <td class="px-5 py-3.5 text-slate-700 font-medium text-sm" data-label="ユーザー">{eu?.display_name || '(名前なし)'}</td>
+                  <td class="px-5 py-3.5" data-label="種別">
                     <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-medium">{actionTypeLabel(a.action_type as string)}</span>
                   </td>
-                  <td class="px-5 py-3.5 text-slate-500 text-xs">{formatDateTimeJST(a.execute_at as string)}</td>
-                  <td class="px-5 py-3.5">
+                  <td class="px-5 py-3.5 text-slate-500 text-xs" data-label="実行予定">{formatDateTimeJST(a.execute_at as string)}</td>
+                  <td class="px-5 py-3.5" data-label="ステータス">
                     <span class={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${actionStatusColor(a.status as string)}`}>{a.status as string}</span>
                   </td>
-                  <td class="px-5 py-3.5 text-slate-500 text-sm">{String(a.attempts)} / {String(a.max_attempts)}</td>
-                  <td class="px-5 py-3.5">
+                  <td class="px-5 py-3.5 text-slate-500 text-sm" data-label="試行">{String(a.attempts)} / {String(a.max_attempts)}</td>
+                  <td class="px-5 py-3.5" data-label="操作">
                     {(a.status === 'pending' || a.status === 'processing') && (
-                      <form method="post" action={`/admin/tenants/${id}/actions/${a.id}/cancel`} class="inline">
+                      <form method="post" action={`/admin/tenants/${id}/actions/${a.id}/cancel`} class="inline" onsubmit="event.preventDefault(); window.confirmAction('アクションキャンセル', 'このアクションをキャンセルしますか？', this);">
                         <button type="submit" class="text-red-500 hover:text-red-600 text-xs font-medium transition">キャンセル</button>
                       </form>
                     )}
                     {a.last_error && (
-                      <span class="text-red-400 text-xs ml-2" title={a.last_error as string}>エラーあり</span>
+                      <Tooltip text={(a.last_error as string).slice(0, 120)}>
+                        <span class="text-red-400 text-xs ml-2 cursor-help underline decoration-dotted">エラーあり</span>
+                      </Tooltip>
                     )}
                   </td>
                 </tr>
@@ -2366,12 +3068,14 @@ dashboard.get('/admin/tenants/:id/actions', async (c) => {
           </tbody>
         </table>
         {(!actions || actions.length === 0) && (
-          <div class="py-12 text-center">
-            <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <p class="text-slate-400 text-sm">アクションがありません</p>
-          </div>
+          <EmptyState
+            icon="⏰"
+            title="アクションがありません"
+            description="スケジュールされたアクションがあるとここに表示されます"
+          />
         )}
       </div>
+      <script dangerouslySetInnerHTML={{__html: `window.initTableSearch('action-search', 'action-table');`}} />
     </Layout>
   );
 });
@@ -2386,7 +3090,7 @@ dashboard.post('/admin/tenants/:id/actions/:actionId/cancel', async (c) => {
     .eq('id', actionId)
     .eq('tenant_id', id)
     .in('status', ['pending', 'processing']);
-  return c.redirect(`/admin/tenants/${id}/actions`);
+  return c.redirect(`/admin/tenants/${id}/actions?toast=warning&msg=${encodeURIComponent('アクションをキャンセルしました')}`);
 });
 
 // --- Getting Started Guide ---
@@ -2646,9 +3350,11 @@ dashboard.post('/admin/tenants/:id/toggle', async (c) => {
   const { data: tenant } = await supabase.from('tenants').select('is_active').eq('id', id).single();
   if (!tenant) return c.redirect('/admin/');
 
-  await supabase.from('tenants').update({ is_active: !tenant.is_active, updated_at: new Date().toISOString() }).eq('id', id);
+  const newActive = !tenant.is_active;
+  await supabase.from('tenants').update({ is_active: newActive, updated_at: new Date().toISOString() }).eq('id', id);
   await invalidateTenantCache(id, c.env);
-  return c.redirect(`/admin/tenants/${id}`);
+  const toggleMsg = newActive ? 'テナントを有効化しました' : 'テナントを無効化しました';
+  return c.redirect(`/admin/tenants/${id}?toast=${newActive ? 'success' : 'warning'}&msg=${encodeURIComponent(toggleMsg)}`);
 });
 
 // --- Slots Management ---
@@ -2748,7 +3454,7 @@ dashboard.post('/admin/tenants/:id/slots/add', async (c) => {
     end_at: endAt,
     max_bookings: maxBookings,
   });
-  return c.redirect(`/admin/tenants/${id}/slots`);
+  return c.redirect(`/admin/tenants/${id}/slots?toast=success&msg=${encodeURIComponent('予約枠を追加しました')}`);
 });
 
 dashboard.post('/admin/tenants/:id/slots/:slotId/delete', async (c) => {
@@ -2756,10 +3462,80 @@ dashboard.post('/admin/tenants/:id/slots/:slotId/delete', async (c) => {
   const slotId = c.req.param('slotId');
   const supabase = getSupabaseClient(c.env);
   await supabase.from('available_slots').update({ is_active: false }).eq('id', slotId).eq('tenant_id', id);
-  return c.redirect(`/admin/tenants/${id}/slots`);
+  return c.redirect(`/admin/tenants/${id}/slots?toast=warning&msg=${encodeURIComponent('予約枠を無効化しました')}`);
 });
 
 // --- Helper components ---
+const Tooltip: FC<{ text: string; children: unknown }> = ({ text, children }) => (
+  <span class="tooltip-wrapper">
+    {children}
+    <span class="tooltip-content">{text}</span>
+  </span>
+);
+
+const EmptyState: FC<{ icon: string; title: string; description: string; ctaLabel?: string; ctaHref?: string }> = ({ icon, title, description, ctaLabel, ctaHref }) => (
+  <div class="empty-state py-16">
+    <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4 text-2xl">{icon}</div>
+    <p class="text-slate-500 font-medium mb-1">{title}</p>
+    <p class="text-sm text-slate-400 mb-4 max-w-xs">{description}</p>
+    {ctaLabel && ctaHref && (
+      <a href={ctaHref} class="inline-flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold transition">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        {ctaLabel}
+      </a>
+    )}
+  </div>
+);
+
+const PaginationBar: FC<{ currentPage: number; totalPages: number; baseUrl: string }> = ({ currentPage, totalPages, baseUrl }) => {
+  if (totalPages <= 1) return null;
+  const pages: number[] = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+      pages.push(i);
+    }
+  }
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return (
+    <div class="pagination">
+      <a href={`${baseUrl}${separator}page=${Math.max(1, currentPage - 1)}`} class={currentPage <= 1 ? 'disabled' : ''}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </a>
+      {pages.map((p, i) => {
+        if (i > 0 && p - pages[i - 1] > 1) {
+          return (
+            <span>
+              <span class="text-slate-300">…</span>
+              <a href={`${baseUrl}${separator}page=${p}`} class={p === currentPage ? 'active' : ''}>{p}</a>
+            </span>
+          );
+        }
+        return <a href={`${baseUrl}${separator}page=${p}`} class={p === currentPage ? 'active' : ''}>{p}</a>;
+      })}
+      <a href={`${baseUrl}${separator}page=${Math.min(totalPages, currentPage + 1)}`} class={currentPage >= totalPages ? 'disabled' : ''}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </a>
+    </div>
+  );
+};
+
+const NoShowBadge: FC<{ risk: NoShowRisk }> = ({ risk }) => {
+  const colors: Record<string, string> = {
+    low: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200',
+    medium: 'bg-amber-50 text-amber-600 ring-1 ring-amber-200',
+    high: 'bg-red-50 text-red-600 ring-1 ring-red-200',
+    critical: 'bg-red-100 text-red-700 ring-1 ring-red-300',
+  };
+  const labels: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '危険' };
+  return (
+    <Tooltip text={risk.factors.map(f => f.detail).join(' / ')}>
+      <span class={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${colors[risk.level]} ${risk.level === 'critical' ? 'pulse-dot' : ''}`}>
+        {labels[risk.level]}リスク ({risk.score})
+      </span>
+    </Tooltip>
+  );
+};
+
 const MetricCard: FC<{ label: string; value: unknown; highlight?: boolean }> = ({ label, value, highlight }) => (
   <div class={`card p-4 ${highlight ? 'gradient-hero text-white shadow-lg shadow-indigo-500/15' : ''}`}>
     <p class={`text-xs font-medium uppercase tracking-wider ${highlight ? 'text-white/60' : 'text-slate-400'}`}>{label}</p>
@@ -3283,7 +4059,23 @@ dashboard.get('/admin/tenants/:id/live', async (c) => {
             </a>
           </div>
           <p class="text-sm text-slate-400 mt-1">直近24時間の会話をリアルタイム監視</p>
+          <div class="mt-2">
+            <div class="countdown-bar" id="refresh-bar"></div>
+          </div>
         </div>
+        <script dangerouslySetInnerHTML={{__html: `
+(function() {
+  var interval = 30000;
+  var timer;
+  function startTimer() {
+    var bar = document.getElementById('refresh-bar');
+    if (bar) { bar.style.animation = 'none'; bar.offsetHeight; bar.style.animation = 'countdown ' + (interval/1000) + 's linear'; }
+    timer = setTimeout(function() { if (!document.hidden) location.reload(); else document.addEventListener('visibilitychange', function onVis() { if (!document.hidden) { location.reload(); document.removeEventListener('visibilitychange', onVis); } }); }, interval);
+  }
+  startTimer();
+  document.addEventListener('visibilitychange', function() { if (document.hidden) clearTimeout(timer); else startTimer(); });
+})();
+        `}} />
 
         {sortedUsers.length === 0 ? (
           <div class="empty-state py-16">
@@ -3453,9 +4245,15 @@ dashboard.get('/admin/tenants/:id/sessions', async (c) => {
         <a href={`/admin/tenants/${id}/sessions?status=escalated`} class={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${status === 'escalated' ? 'bg-red-500 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500 hover:bg-slate-50'}`}>エスカレ</a>
       </div>
 
+      {/* Search */}
+      <div class="mb-4 flex items-center gap-3">
+        <input id="session-search" type="text" placeholder="セッションを検索..." class="search-bar flex-1" />
+        <span id="session-search-count" class="text-xs text-slate-400">{(sessions || []).length}件</span>
+      </div>
+
       {/* Sessions List */}
       <div class="card overflow-x-auto">
-        <table class="w-full text-sm">
+        <table id="session-table" class="w-full text-sm responsive-table">
           <thead>
             <tr class="text-[10px] text-slate-400 uppercase tracking-widest bg-slate-50/50">
               <th class="text-left px-5 py-2.5 font-semibold">ユーザー</th>
@@ -3508,6 +4306,7 @@ dashboard.get('/admin/tenants/:id/sessions', async (c) => {
         </table>
       </div>
       <p class="text-xs text-slate-400 mt-3">合計: <span class="font-medium text-slate-500">{count || 0}</span> 件</p>
+      <script dangerouslySetInnerHTML={{__html: `window.initTableSearch('session-search', 'session-table');`}} />
     </Layout>
   );
 });
